@@ -303,21 +303,26 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     if (lookupError) {
-      console.error("Lead lookup failed:", {
-        email,
-        error: lookupError,
-      });
+  console.error("Lead lookup failed:", {
+    email,
+    error: lookupError,
+  });
 
-      return jsonResponse(
-        {
-          success: false,
-          error: "Unable to check the existing lead.",
-        },
-        500,
-        origin
-      );
-    }
-
+  return jsonResponse(
+    {
+      success: false,
+      error: "Unable to check the existing lead.",
+      debug: {
+        code: lookupError.code,
+        message: lookupError.message,
+        details: lookupError.details,
+        hint: lookupError.hint,
+      },
+    },
+    500,
+    origin
+  );
+}
     let leadId: string;
     let created = false;
 
