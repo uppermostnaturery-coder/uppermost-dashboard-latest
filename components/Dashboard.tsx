@@ -604,8 +604,8 @@ export default function Dashboard() {
   const loadSidebar = useCallback(async () => {
     const [on, vis, ses, ev] = await Promise.all([
      supabase.from("analytics_visitors").select("visitor_id", { count: "exact", head: true }).gte("last_seen_at", new Date(Date.now() - 3 * 60 * 1000).toISOString()),
-      supabase.from("analytics_visitors").select("visitor_id", { count: "exact", head: true }),
-      supabase.from("analytics_sessions").select("session_id", { count: "exact", head: true }),
+    supabase.from("analytics_visitors").select("visitor_id", { count: "exact", head: true }),
+     supabase.from("analytics_sessions").select("session_id", { count: "exact", head: true }).eq("is_active", true).gt("last_seen_at", new Date(Date.now() - 90 * 1000).toISOString()),
       supabase.from("analytics_events").select("event_name", { count: "exact", head: true }).gte("created_at", rangeStart(range)),
     ]);
     setSidebarStats({ online: on.count ?? 0, visitors: vis.count ?? 0, sessions: ses.count ?? 0, events: ev.count ?? 0 });
@@ -617,7 +617,11 @@ export default function Dashboard() {
     const [v, on, s, pv, ev, atc, co, pur] = await Promise.all([
       supabase.from("analytics_visitors").select("visitor_id", { count: "exact", head: true }).gte("last_seen_at", since),
      supabase.from("analytics_visitors").select("visitor_id", { count: "exact", head: true }).gte("last_seen_at", new Date(Date.now() - 3 * 60 * 1000).toISOString()),
-      supabase.from("analytics_sessions").select("session_id", { count: "exact", head: true }).gte("last_seen_at", since),
+    supabase
+  .from("analytics_sessions")
+  .select("session_id", { count: "exact", head: true })
+  .eq("is_active", true)
+  .gt("last_seen_at", new Date(Date.now() - 90 * 1000).toISOString()),
       supabase.from("analytics_events").select("event_name", { count: "exact", head: true }).eq("event_name", "page_view").gte("created_at", since),
       supabase.from("analytics_events").select("event_name", { count: "exact", head: true }).gte("created_at", since),
       supabase.from("analytics_events").select("event_name", { count: "exact", head: true }).eq("event_name", "add_to_cart").gte("created_at", since),
