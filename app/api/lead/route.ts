@@ -390,7 +390,7 @@ export async function POST(request: Request) {
 
     const { data: existingLead, error: lookupError } = await supabaseAdmin
       .from("um_leads")
-      .select("id")
+      .select("id, intents, intent_history")
       .ilike("email", email)
       .limit(1)
       .maybeSingle();
@@ -419,31 +419,56 @@ export async function POST(request: Request) {
     let leadId: string;
     let created = false;
 
-    if (existingLead?.id) {
-      const { data: updatedLead, error: updateError } = await supabaseAdmin
-        .from("um_leads")
-        .update(leadPayload)
-        .eq("id", existingLead.id)
-        .select("id")
-        .single();
+   if (existingLead?.id) {
+  const previousIntents = Array.isArray(existingLead.intents)
+    ? existingLead.intents
+    : [];
 
-      if (updateError || !updatedLead) {
-        console.error("Lead update failed:", {
-          leadId: existingLead.id,
-          error: updateError,
-        });
+  const updatedIntents = Array.from(
+    new Set([...previousIntents, purpose])
+  );
 
-        return jsonResponse(
-          {
-            success: false,
-            error: "Unable to update the lead.",
-          },
-          500,
-          origin
-        );
-      }
+  const previousHistory = Array.isArray(existingLead.intent_history)
+    ? existingLead.intent_history
+    : [];
 
-      leadId = updatedLead.id;
+  const updatedHistory = [
+    ...previousHistory,
+    {
+      purpose,
+      segment: intent.segment,
+      recorded_at: now,
+    },
+  ];
+
+  const { data: updatedLead, error: updateError } = await supabaseAdmin
+    .from("um_leads")
+    .update({
+      ...leadPayload,
+      intents: updatedIntents,
+      intent_history: updatedHistory,
+    })
+    .eq("id", existingLead.id)
+    .select("id")
+    .single();
+
+  if (updateError || !updatedLead) {
+    console.error("Lead update failed:", {
+      leadId: existingLead.id,
+      error: updateError,
+    });
+
+    return jsonResponse(
+      {
+        success: false,
+        error: "Unable to update the lead.",
+      },
+      500,
+      origin
+    );
+  }
+
+  leadId = updatedLead.id;
     } else {
       const { data: insertedLead, error: insertError } = await supabaseAdmin
         .from("um_leads")
