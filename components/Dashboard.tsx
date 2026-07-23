@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
+import LemlistAnalytics from "./LemlistAnalytics";
 import { supabase } from "@/lib/supabase";
 import {
   Chart as ChartJS,
@@ -19,7 +20,7 @@ import { Line, Doughnut, Bar } from "react-chartjs-2";
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Filler, Tooltip, Legend);
 
 // ─── Types ───────────────────────────────────
-type Page = "overview" | "realtime" | "funnel" | "pages" | "visitors" | "events" | "sources" | "scrolldepth";
+type Page = "overview" | "realtime" | "funnel" | "pages" | "visitors" | "events" | "sources" | "scrolldepth" | "lemlist"; 
 
 interface Metrics {
   visitors: number; online: number; sessions: number;
@@ -1070,7 +1071,7 @@ const loadEventFeed = useCallback(async () => {
           {([
             ["overview", "Overview"], ["realtime", "Real-Time"], ["funnel", "Funnel"],
             ["pages", "Pages"], ["visitors", "Visitors"], ["events", "Events"],
-            ["sources", "Sources"], ["scrolldepth", "Scroll Depth"],
+            ["sources", "Sources"], ["scrolldepth", "Scroll Depth"],["lemlist", "Lemlist"]
           ] as [Page, string][]).map(([page, label]) => (
             <div key={page} onClick={() => setActivePage(page)} style={{
               display: "flex", alignItems: "center", gap: 10, padding: "8px 18px",
@@ -1165,10 +1166,71 @@ const loadEventFeed = useCallback(async () => {
 
         {/* Content */}
         <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 18 }}>
+{/* — LEMLIST — */}
+{activePage === "lemlist" && (
+  <>
+    <div
+      style={{
+        display: "flex",
+        alignItems: "flex-end",
+        justifyContent: "space-between",
+        gap: 16,
+      }}
+    >
+      <div>
+        <div
+          style={{
+            color: "var(--text)",
+            fontSize: 18,
+            fontWeight: 600,
+          }}
+        >
+          Lemlist Intelligence
+        </div>
 
+        <div
+          style={{
+            color: "var(--muted)",
+            fontSize: 11,
+            marginTop: 4,
+          }}
+        >
+          Campaign leads, executive outreach and positive replies
+        </div>
+      </div>
+
+      <div
+        style={{
+          color: "var(--green)",
+          background: "rgba(34,211,160,0.08)",
+          border: "1px solid rgba(34,211,160,0.25)",
+          borderRadius: 5,
+          padding: "5px 9px",
+          fontSize: 9,
+          fontWeight: 700,
+        }}
+      >
+        ● LIVE INTEGRATION
+      </div>
+    </div>
+
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns:
+          "repeat(auto-fit, minmax(220px,1fr))",
+        gap: 14,
+      }}
+    >
+      <LemlistAnalytics days={range} />
+    </div>
+  </>
+)}
           {/* ══ OVERVIEW ══ */}
           {activePage === "overview" && <>
+          
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px,1fr))", gap: 12 }}>
+  <LemlistAnalytics days={range} />
               <MetricCard label="Total Visitors"  value={metrics.visitors}  color="var(--accent)" badge="Live" highlight />
               <MetricCard label="Online Now"       value={metrics.online}    color="var(--green)"  badge="Real-time" highlight />
               <MetricCard label="Sessions"          value={metrics.sessions}  color="var(--blue)"   badge="Live" highlight />
