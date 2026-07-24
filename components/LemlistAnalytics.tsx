@@ -101,6 +101,10 @@ export default function LemlistAnalytics({ days = 1 }: Props) {
         <div
           key={card.label}
           style={{
+            width: "100%",
+            maxWidth: "100%",
+            minWidth: 0,
+            boxSizing: "border-box",
             minHeight: 130,
             padding: "15px 15px 13px",
             border: "1px solid var(--border2)",
@@ -124,9 +128,10 @@ export default function LemlistAnalytics({ days = 1 }: Props) {
           <div
             style={{
               color: "var(--muted)",
-              fontSize: 11,
+              fontSize: 16,
               fontWeight: 800,
-              letterSpacing: "0.08em",
+              lineHeight: 1.25,
+              letterSpacing: "0.04em",
               textTransform: "uppercase",
             }}
           >
@@ -136,10 +141,10 @@ export default function LemlistAnalytics({ days = 1 }: Props) {
           <div
             style={{
               color: "var(--text)",
-              fontSize: 27,
+              fontSize: 26,
               fontWeight: 700,
               lineHeight: 1,
-              marginTop: 15,
+              marginTop: 12,
               fontVariantNumeric: "tabular-nums",
             }}
           >

@@ -16,6 +16,8 @@ import {
   ArcElement,
 } from "chart.js";
 import { Line, Doughnut, Bar } from "react-chartjs-2";
+import { SiGooglechrome, SiSafari, SiInstagram, SiMicrosoftedge, SiFirefoxbrowser, SiOpera, SiBrave } from 'react-icons/si';
+import { FiMoreHorizontal, FiGlobe } from 'react-icons/fi';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Filler, Tooltip, Legend);
 
@@ -187,6 +189,10 @@ function Sparkline({ data, color }: { data: number[]; color: string }) {
 function MetricCard({ label, value, color, badge, highlight, spark }: { label: string; value: number | string; color: string; badge: string; highlight?: boolean; spark?: number[] }) {
   return (
     <div style={{
+      width: "100%",
+      maxWidth: "100%",
+      minWidth: 0,
+      boxSizing: "border-box",
       background: highlight ? "var(--card2)" : "var(--card)",
       border: highlight ? "1px solid var(--border2)" : "1px solid var(--border)",
       borderRadius: "var(--radius)",
@@ -195,6 +201,8 @@ function MetricCard({ label, value, color, badge, highlight, spark }: { label: s
       <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 2, background: color }} />
       <div
   style={{
+    height: 44,
+    lineHeight: 1.2,
     fontSize: 18,
     fontWeight: 700,
     textTransform: "uppercase",
@@ -244,6 +252,250 @@ function BarList({ items }: { items: BarItem[] }) {
     </div>
   );
 }
+
+function BrowserStats({ items }: { items: BarItem[] }) {
+  const total = items.reduce((sum, item) => sum + item.count, 0) || 1;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1.8fr 0.8fr 0.8fr", gap: 12, fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.08em", padding: "0 6px" }}>
+        <span>Browser</span>
+        <span style={{ textAlign: "right" }}>Sessions</span>
+        <span style={{ textAlign: "right" }}>% of total</span>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {items.map((item, i) => {
+          const pct = Math.round((item.count / total) * 100);
+          const color = BAR_COLORS[i % BAR_COLORS.length];
+          return (
+            <div key={item.label} style={{ display: "grid", gridTemplateColumns: "1.8fr 0.8fr 0.8fr", gap: 12, alignItems: "center", padding: "10px 6px", borderRadius: 12, background: "rgba(255,255,255,0.02)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, color: "var(--text)", fontWeight: 600 }}>
+                <span style={{ width: 10, height: 10, borderRadius: "50%", background: color, display: "inline-block" }} />
+                <span>{item.label || "Unknown"}</span>
+              </div>
+              <div style={{ fontSize: 12, color: "var(--text)", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{item.count}</div>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                <div style={{ width: "100%", maxWidth: 180, height: 6, background: "var(--bg3)", borderRadius: 999, overflow: "hidden" }}>
+                  <div style={{ width: `${pct}%`, height: "100%", background: color, transition: "width 0.4s ease" }} />
+                </div>
+                <div style={{ fontSize: 10, color: "var(--muted)" }}>{pct}%</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function BrowserAnalyticsTable({ items }: { items: BarItem[] }) {
+  if (!items || items.length === 0) return <div style={{ textAlign: "center", padding: 24, color: "var(--dim)", fontSize: 12 }}>No data yet</div>;
+
+  const rows = [...items].sort((a, b) => b.count - a.count);
+  const total = rows.reduce((s, r) => s + r.count, 0) || 1;
+  const max = Math.max(...rows.map(r => r.count)) || 1;
+
+  const formatCount = (n: number) => n.toLocaleString();
+  const formatPct = (n: number) => ((n / total) * 100).toFixed(1) + "%";
+
+  const iconFor = (label: string) => {
+    const s = (label || "").toLowerCase();
+    if (s.includes("chrome")) return <SiGooglechrome size={14} color="#4285F4" />;
+    if (s.includes("safari")) return <SiSafari size={14} color="#0A84FF" />;
+    if (s.includes("instagram")) return <SiInstagram size={14} color="#E4405F" />;
+    if (s.includes("edge")) return <SiMicrosoftedge size={14} color="#0AA0F6" />;
+    if (s.includes("firefox")) return <SiFirefoxbrowser size={14} color="#FF7139" />;
+    if (s.includes("opera")) return <SiOpera size={14} color="#8B8B83" />;
+    if (s.includes("brave")) return <SiBrave size={14} color="#8B8B83" />;
+    if (s.includes("samsung")) return <FiGlobe size={14} color="#8B8B83" />;
+    return <FiMoreHorizontal size={14} color="#8B8B83" />;
+  };
+
+  const barColorFor = (label: string) => {
+    const s = (label || "").toLowerCase();
+    if (s.includes("chrome")) return "#8FA66A";
+    if (s.includes("safari")) return "#C8A25A";
+    if (s.includes("instagram")) return "#7189AF";
+    if (s.includes("edge")) return "#86A174";
+    if (s.includes("firefox")) return "#77766D";
+    return "#696961";
+  };
+
+  const roundMax = (v: number) => {
+    if (v >= 1000) {
+      const step = Math.pow(10, Math.max(2, Math.floor(Math.log10(v)) - 2));
+      return Math.ceil(v / step) * step;
+    }
+    if (v >= 100) return Math.ceil(v / 10) * 10;
+    return v;
+  };
+
+  const maxRounded = roundMax(max);
+  const ticks = [0, Math.round(maxRounded / 3), Math.round((2 * maxRounded) / 3), maxRounded];
+
+  const fmtTick = (n: number) => {
+    if (n >= 1000) return (Math.round((n / 100) ) / 10) + "K";
+    return String(n);
+  };
+
+  return (
+    <div style={{ width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 2fr 0.7fr 0.7fr", gap: 12, fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.08em", padding: "0 6px" }}>
+        <span>Browser</span>
+        <span style={{ textAlign: "left" }}>Horizontal Graph</span>
+        <span style={{ textAlign: "right" }}>Sessions</span>
+        <span style={{ textAlign: "right" }}>% of total</span>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {rows.map((r) => {
+          const widthPct = Math.round((r.count / max) * 100);
+          return (
+            <div key={r.label} style={{ display: "grid", gridTemplateColumns: "1.4fr 2fr 0.7fr 0.7fr", gap: 12, alignItems: "center", padding: "6px", height: 30 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--text)", fontWeight: 600 }}>
+                <div style={{ width: 18, display: "flex", alignItems: "center", justifyContent: "center" }}>{iconFor(r.label)}</div>
+                <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.label || "Unknown"}</div>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ width: "100%", height: 9, background: "var(--bg3)", borderRadius: 6, overflow: "hidden" }}>
+                  <div style={{ width: `${widthPct}%`, height: "100%", background: barColorFor(r.label), borderRadius: 4, transition: "width 0.4s ease" }} />
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "var(--muted)", padding: "0 2px" }}>
+                  {ticks.map((t, i) => (
+                    <div key={i} style={{ textAlign: i === ticks.length - 1 ? "right" : "left", flex: 1 }}>{fmtTick(t)}</div>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ fontSize: 12, color: "var(--text)", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{formatCount(r.count)}</div>
+
+              <div style={{ fontSize: 12, color: "var(--muted)", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{formatPct(r.count)}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function OverviewFunnelKpi({ visitors, pageViews, atc, checkouts, purchases }: { visitors: number; pageViews: number; atc: number; checkouts: number; purchases: number; }) {
+  const steps = [
+    { label: "Visitors", value: visitors, pct: "100%", drop: "—" },
+    {
+      label: "Product Views",
+      value: pageViews,
+      pct: visitors ? `${Math.round((pageViews / visitors) * 100)}%` : "0%",
+      drop: visitors ? `${Math.round((1 - pageViews / visitors) * 100)}%` : "0%",
+    },
+    {
+      label: "Cart Adds",
+      value: atc,
+      pct: pageViews ? `${Math.round((atc / pageViews) * 100)}%` : "0%",
+      drop: pageViews ? `${Math.round((1 - atc / pageViews) * 100)}%` : "0%",
+    },
+    {
+      label: "Checkout",
+      value: checkouts,
+      pct: atc ? `${Math.round((checkouts / atc) * 100)}%` : "0%",
+      drop: atc ? `${Math.round((1 - checkouts / atc) * 100)}%` : "0%",
+    },
+    {
+      label: "Purchase",
+      value: purchases,
+      pct: checkouts ? `${Math.round((purchases / checkouts) * 100)}%` : "0%",
+      drop: checkouts ? `${Math.round((1 - purchases / checkouts) * 100)}%` : "0%",
+    },
+  ];
+  const overall = visitors ? `${Math.round((purchases / visitors) * 100)}%` : "0%";
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.14em", color: "var(--muted)", textTransform: "uppercase" }}>Conversion Funnel</div>
+        <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--muted)", padding: "3px 8px", borderRadius: 999, border: "1px solid var(--border)" }}>Overview</div>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {steps.map((step, i) => {
+          const stageWidths = [100, 82, 64, 48, 34];
+          const colors = ["#c98a4b", "#8fae6b", "#8aa6a3", "#d9a441", "#c4633f"];
+          const width = stageWidths[i];
+          const color = colors[i];
+          return (
+            <div key={step.label} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center" }}>
+              <div style={{ display: "flex", justifyContent: "center" }}>
+                <div style={{ width: `${width}%`, minWidth: 0, maxWidth: "100%", position: "relative" }}>
+                  <div style={{
+                    clipPath: "polygon(0 0, 100% 0, 90% 100%, 10% 100%)",
+                    background: color,
+                    padding: "14px 14px",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    minHeight: 70,
+                    color: "#fff",
+                    borderRadius: 16,
+                    boxShadow: "0 10px 18px rgba(0,0,0,0.18)",
+                  }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", color: "rgba(255,255,255,0.9)", textTransform: "uppercase", marginBottom: 4 }}>{step.label}</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: "#fff" }}>{step.value}</div>
+                    <div style={{ fontSize: 10, color: "rgba(255,255,255,0.8)", marginTop: 4 }}>{step.pct} conversion</div>
+                  </div>
+                </div>
+              </div>
+              <div style={{ textAlign: "right", fontSize: 10, color: i === 0 ? "var(--muted)" : "var(--red)", fontWeight: 700, minWidth: 52 }}>
+                {i === 0 ? "—" : step.drop}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", borderRadius: 12, background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)" }}>
+        <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.12em", color: "var(--muted)", fontWeight: 700 }}>Overall Conversion Rate</div>
+        <div style={{ fontSize: 20, fontWeight: 700, color: "var(--accent)" }}>{overall}</div>
+      </div>
+    </div>
+  );
+}
+
+function CompactVerticalBarGraph({ items }: { items: BarItem[] }) {
+  if (!items.length) {
+    return <div style={{ textAlign: "center", padding: 24, color: "var(--dim)", fontSize: 12 }}>No data yet</div>;
+  }
+
+  const displayItems = items.slice(0, 5);
+  const max = Math.max(...displayItems.map((item) => item.count)) || 1;
+
+  return (
+    <div style={{ display: "flex", alignItems: "flex-end", gap: 12, minHeight: 150, padding: "4px 2px" }}>
+      {displayItems.map((item, index) => {
+        const pct = Math.round((item.count / max) * 100);
+        const color = BAR_COLORS[index % BAR_COLORS.length];
+        return (
+          <div key={item.label} style={{ flex: 1, minWidth: 52, display: "flex", flexDirection: "column", alignItems: "center" }}>
+            <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 6 }}>{item.count}</div>
+            <div style={{ width: "100%", height: 112, position: "relative", display: "flex", alignItems: "flex-end", background: "rgba(255,255,255,0.04)", borderRadius: 16, overflow: "hidden" }}>
+              <div
+                style={{
+                  width: "100%",
+                  height: `${pct}%`,
+                  background: `linear-gradient(180deg, ${color}bb, ${color})`,
+                  borderRadius: "16px 16px 0 0",
+                  transition: "height 0.4s ease",
+                }}
+              />
+              <div style={{ position: "absolute", top: 6, left: 0, right: 0, textAlign: "center", fontSize: 10, color: "var(--text)", fontWeight: 700 }}>
+                {pct}%
+              </div>
+            </div>
+            <div style={{ marginTop: 8, fontSize: 11, color: "var(--text)", textAlign: "center", lineHeight: 1.2 }}>{item.label || "Unknown"}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function PremiumVerticalBarGraph({
   items,
   compact = false,
@@ -372,7 +624,7 @@ function PremiumVerticalBarGraph({
 
 function Panel({ title, badge, children, style }: { title: string; badge?: string; children: React.ReactNode; style?: React.CSSProperties }) {
   return (
-    <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: 16, ...style }}>
+    <div style={{ width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: 16, ...style }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
         <span style={{ fontSize: 14, fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--muted)" }}>{title}</span>
         {badge && (
@@ -1059,12 +1311,8 @@ const loadEventFeed = useCallback(async () => {
 
       {/* ── SIDEBAR (left) ── */}
       <aside style={{ order: 0, width: 200, minWidth: 200, background: "var(--bg2)", borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
-        <div style={{ padding: "16px 18px 14px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 10 }}>
-          <img src="/uppermost-logo.png" alt="Uppermost" style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 8, flexShrink: 0 }} />
-          <div>
-            <div style={{ fontSize: 15, fontWeight: 500, fontFamily: "Georgia, 'Times New Roman', serif", color: "var(--text)", lineHeight: 1.2 }}>Uppermôst.</div>
-            <div style={{ fontSize: 9, color: "var(--muted)", letterSpacing: "0.05em", marginTop: 2, textTransform: "uppercase" }}>Analytics Intelligence</div>
-          </div>
+        <div style={{ padding: "16px 18px 14px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <img src="/uppermost-analytics-logo.png" alt="Uppermost" style={{ width: "100%", maxWidth: 150, height: "auto", objectFit: "contain", display: "block", margin: "0 auto" }} />
         </div>
 
         <nav style={{ padding: "12px 0", flex: 1, overflowY: "auto" }}>
@@ -1106,7 +1354,7 @@ const loadEventFeed = useCallback(async () => {
       </aside>
 
       {/* ── MAIN (right) ── */}
-      <div style={{ order: 1, flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ order: 1, flex: 1, width: "auto", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
         {/* Topbar */}
         <div style={{ padding: "14px 24px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--bg2)" }}>
@@ -1165,7 +1413,7 @@ const loadEventFeed = useCallback(async () => {
         </div>
 
         {/* Content */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 18 }}>
+        <div style={{ flex: 1, width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 18 }}>
 {/* — LEMLIST — */}
 {activePage === "lemlist" && (
   <>
@@ -1228,9 +1476,20 @@ const loadEventFeed = useCallback(async () => {
 )}
           {/* ══ OVERVIEW ══ */}
           {activePage === "overview" && <>
-          
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px,1fr))", gap: 12 }}>
-  <LemlistAnalytics days={range} />
+   
+       <div
+      style={{
+    width: "100%",
+    maxWidth: "100%",
+    minWidth: 0,
+    boxSizing: "border-box",
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(140px,1fr))",
+    gap: 12,
+  }}
+
+>
+  <LemlistAnalytics days={range} /> 
               <MetricCard label="Total Visitors"  value={metrics.visitors}  color="var(--accent)" badge="Live" highlight />
               <MetricCard label="Online Now"       value={metrics.online}    color="var(--green)"  badge="Real-time" highlight />
               <MetricCard label="Sessions"          value={metrics.sessions}  color="var(--blue)"   badge="Live" highlight />
@@ -1240,44 +1499,7 @@ const loadEventFeed = useCallback(async () => {
               <MetricCard label="Checkouts"         value={metrics.checkouts} color="var(--blue)"   badge="Live" spark={sparks.checkouts} />
               <MetricCard label="Purchases"         value={metrics.purchases} color="var(--green)"  badge="Live" spark={sparks.purchases} />
             </div>
-             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-              <Panel title="Operating Systems">
-                <PremiumVerticalBarGraph items={osData} compact />
-              </Panel>
-              <Panel title="Meta Ads Traffic">
-    <div
-    style={{
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 5,
-      fontSize: 11,
-      fontWeight: 800,
-      padding: "4px 9px",
-      borderRadius: 5,
-      background: "rgba(217,164,65,0.14)",
-      color: "#d9a441",
-      marginBottom: 10,
-    }}
-  >
-    ● Sample data — Meta not connected yet
-  </div>
-
-  <PremiumVerticalBarGraph
-    items={[
-      { label: "Instagram", count: metaStats.instagram || 0 },
-      { label: "Facebook", count: metaStats.facebook || 0 },
-      { label: "WhatsApp", count: metaStats.whatsapp || 0 },
-    ]}
-    compact
-  />
-</Panel>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 14 }}>
-              <Panel title="Page Views — Last 7 Days" badge="Live">
-                <div style={{ position: "relative", height: 180 }}>
-                  <Line data={chartData} options={chartOptions as Parameters<typeof Line>[0]["options"]} />
-                </div>
-              </Panel>
+             <div style={{ width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", display: "grid", gridTemplateColumns: "minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr)", gap: 14 }}>
               <Panel title="⚡ Right Now" badge="● Live">
                 <div style={{ fontSize: 56, fontWeight: 800, letterSpacing: "-0.04em", color: "var(--green)", lineHeight: 1, textAlign: "center", padding: "10px 0", fontVariantNumeric: "tabular-nums" }}>{nowCount}</div>
                 <div style={{ textAlign: "center", fontSize: 11, color: "var(--muted)", marginBottom: 14 }}>Visitors on site</div>
@@ -1311,23 +1533,54 @@ const loadEventFeed = useCallback(async () => {
                     });
                   })()}
                 </div>
-              </Panel>
-            </div>
-                 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 2fr", gap: 14 }}>
-          <Panel title="Device Split">
-                {devices.length === 0
-                  ? <div style={{ textAlign: "center", padding: 24, color: "var(--dim)", fontSize: 12 }}>No data yet</div>
-                  : <div style={{ position: "relative", height: 200 }}>
-                      <Doughnut data={donutData} options={donutOptions as Parameters<typeof Doughnut>[0]["options"]} />
-                      <div style={{ position: "absolute", top: "38%", left: 0, right: 0, textAlign: "center", pointerEvents: "none" }}>
-                        <div style={{ fontSize: 26, fontWeight: 700, color: "var(--text)", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{deviceTotal}</div>
-                        <div style={{ fontSize: 9, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 2 }}>Total</div>
-                      </div>
-                    </div>}
-              </Panel>
+                <div style={{ marginTop: 18, borderTop: "1px solid var(--border)", paddingTop: 16 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                    <span style={{ fontSize: 14, fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--muted)" }}>Page Views — Last 7 Days</span>
+                    <span style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Live</span>
+                  </div>
+                  <div style={{ position: "relative", height: 190, width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", overflow: "hidden" }}>
+                    <Line data={chartData} options={chartOptions as Parameters<typeof Line>[0]["options"]} />
+                  </div>
+                </div>
 
-              <Panel title="Browsers"><BarList items={browsers} /></Panel>
+              </Panel>
+              <Panel title="Conversion Funnel" badge="● Live">
+                <OverviewFunnelKpi
+                  visitors={metrics.visitors}
+                  pageViews={metrics.pageviews}
+                  atc={metrics.atc}
+                  checkouts={metrics.checkouts}
+                  purchases={metrics.purchases}
+                />
+              </Panel>
+              <Panel title="Meta Ads Traffic">
+    <div
+    style={{
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 5,
+      fontSize: 11,
+      fontWeight: 800,
+      padding: "4px 9px",
+      borderRadius: 5,
+      background: "rgba(217,164,65,0.14)",
+      color: "#d9a441",
+      marginBottom: 10,
+    }}
+  >
+    ● Sample data — Meta not connected yet
+  </div>
+
+  <PremiumVerticalBarGraph
+    items={[
+      { label: "Instagram", count: metaStats.instagram || 0 },
+      { label: "Facebook", count: metaStats.facebook || 0 },
+      { label: "WhatsApp", count: metaStats.whatsapp || 0 },
+    ]}
+    compact
+  />
+</Panel>
+            </div>
               <Panel title="Live Event Feed" badge="● Live">
                 <div style={{ maxHeight: 220, overflowY: "auto" }}>
                   {eventFeed.length === 0
@@ -1335,6 +1588,34 @@ const loadEventFeed = useCallback(async () => {
                     : eventFeed.map((e, i) => <EventFeedItem key={i} e={e} />)}
                 </div>
               </Panel>
+            
+            
+            <div style={{ width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", display: "grid", gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1fr)", gap: 14 }}>
+              <Panel title="Devices & Operating Systems">
+                <div style={{ width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 0, minHeight: 260 }}>
+                  <div style={{ paddingRight: 14, borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: "var(--muted)", textTransform: "uppercase" }}>Device Split</div>
+                    {devices.length === 0
+                      ? <div style={{ textAlign: "center", padding: 24, color: "var(--dim)", fontSize: 12 }}>No data yet</div>
+                      : <div style={{ position: "relative", height: 200 }}>
+                          <Doughnut data={donutData} options={donutOptions as Parameters<typeof Doughnut>[0]["options"]} />
+                          <div style={{ position: "absolute", top: "38%", left: 0, right: 0, textAlign: "center", pointerEvents: "none" }}>
+                            <div style={{ fontSize: 26, fontWeight: 700, color: "var(--text)", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{deviceTotal}</div>
+                            <div style={{ fontSize: 9, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 2 }}>Total</div>
+                          </div>
+                        </div>}
+                  </div>
+
+                  <div style={{ paddingLeft: 14, display: "flex", flexDirection: "column", gap: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: "var(--muted)", textTransform: "uppercase" }}>Operating Systems</div>
+                    <div style={{ minHeight: 200 }}>
+                      <PremiumVerticalBarGraph items={osData} compact />
+                    </div>
+                  </div>
+                </div>
+              </Panel>
+
+              <Panel title="Browsers"><BrowserAnalyticsTable items={browsers} /></Panel>
             </div>
           </>}
 
