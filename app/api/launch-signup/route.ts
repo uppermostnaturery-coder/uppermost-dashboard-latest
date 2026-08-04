@@ -30,6 +30,7 @@ const ALLOWED_ORIGINS = new Set([
 
 type LaunchSignupBody = {
   email?: unknown;
+  Email?: unknown;
   emailConsent?: unknown;
   source?: unknown;
   landingPage?: unknown;
@@ -38,7 +39,6 @@ type LaunchSignupBody = {
   utmCampaign?: unknown;
   botField?: unknown;
 };
-
 class RequestValidationError extends Error {
   constructor(
     message: string,
@@ -388,7 +388,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const email = normalizeEmail(body.email);
+    const email = normalizeEmail(body.email ?? body.Email);
 
     if (!email || !isValidEmail(email)) {
       throw new RequestValidationError(
