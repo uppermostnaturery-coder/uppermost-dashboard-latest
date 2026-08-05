@@ -12,8 +12,6 @@ import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 // Do not remove.
 // Uncomment in Phase 2.
 // ======================================================
-import { brevoFetch } from "../../../lib/brevo/client";
-import { getBrevoServerEnv } from "../../../lib/brevo/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -313,10 +311,14 @@ async function saveLaunchLead(args: {
 // Uncomment in Phase 2.
 // ======================================================
 async function syncLaunchContactToBrevo(email: string) {
-  const { BREVO_MARKETING_LIST_ID } =
-    getBrevoServerEnv();
+  const apiKey = process.env.BREVO_API_KEY;
+  const marketingListId = process.env.BREVO_MARKETING_LIST_ID;
 
-  const listId = Number(BREVO_MARKETING_LIST_ID);
+  if (!apiKey) {
+    throw new Error("BREVO_API_KEY must be set.");
+  }
+
+  const listId = Number(marketingListId);
 
   if (!Number.isInteger(listId) || listId <= 0) {
     throw new Error(
@@ -324,14 +326,28 @@ async function syncLaunchContactToBrevo(email: string) {
     );
   }
 
-  await brevoFetch("/contacts", {
-    method: "POST",
-    body: {
-      email,
-      listIds: [listId],
-      updateEnabled: true,
-    },
-  });
+  const response = await fetch(
+    "https://api.brevo.com/v3/contacts",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "api-key": apiKey,
+      },
+      body: JSON.stringify({
+        email,
+        listIds: [listId],
+        updateEnabled: true,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const details = await response.text();
+    throw new Error(
+      `Brevo sync failed: ${response.status} ${details}`
+    );
+  }
 
   return {
     status: "synced" as const,
