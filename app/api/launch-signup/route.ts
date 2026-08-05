@@ -12,8 +12,8 @@ import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 // Do not remove.
 // Uncomment in Phase 2.
 // ======================================================
-// import { brevoFetch } from "../../../lib/brevo/client";
-// import { getBrevoServerEnv } from "../../../lib/brevo/env";
+import { brevoFetch } from "../../../lib/brevo/client";
+import { getBrevoServerEnv } from "../../../lib/brevo/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -312,32 +312,32 @@ async function saveLaunchLead(args: {
 // Do not remove.
 // Uncomment in Phase 2.
 // ======================================================
-// async function syncLaunchContactToBrevo(email: string) {
-//   const { BREVO_MARKETING_LIST_ID } =
-//     getBrevoServerEnv();
-//
-//   const listId = Number(BREVO_MARKETING_LIST_ID);
-//
-//   if (!Number.isInteger(listId) || listId <= 0) {
-//     throw new Error(
-//       "BREVO_MARKETING_LIST_ID must be a valid positive number."
-//     );
-//   }
-//
-//   await brevoFetch("/contacts", {
-//     method: "POST",
-//     body: {
-//       email,
-//       listIds: [listId],
-//       updateEnabled: true,
-//     },
-//   });
-//
-//   return {
-//     status: "synced" as const,
-//     listId,
-//   };
-// }
+async function syncLaunchContactToBrevo(email: string) {
+  const { BREVO_MARKETING_LIST_ID } =
+    getBrevoServerEnv();
+
+  const listId = Number(BREVO_MARKETING_LIST_ID);
+
+  if (!Number.isInteger(listId) || listId <= 0) {
+    throw new Error(
+      "BREVO_MARKETING_LIST_ID must be a valid positive number."
+    );
+  }
+
+  await brevoFetch("/contacts", {
+    method: "POST",
+    body: {
+      email,
+      listIds: [listId],
+      updateEnabled: true,
+    },
+  });
+
+  return {
+    status: "synced" as const,
+    listId,
+  };
+}
 
 export async function OPTIONS(request: Request) {
   const origin = request.headers.get("origin");
@@ -373,6 +373,9 @@ export async function POST(request: Request) {
     console.log("Launch signup request received for lead capture");
 
     const body = await parseRequestBody(request);
+    console.log("===== FRAMER PAYLOAD =====");
+    console.log(JSON.stringify(body, null, 2));
+
 
     const botField = cleanText(body.botField, 200);
 
@@ -429,16 +432,22 @@ export async function POST(request: Request) {
 
     console.log("Lead inserted into Supabase");
 
-    // TODO:
-    // Re-enable Brevo after Supabase testing is complete.
-    // Flow:
-    // Framer → Supabase → Brevo Contact → List Assignment → Automation
+    const brevo = await syncLaunchContactToBrevo(email);
+
+    console.log("Contact synced to Brevo", {
+      email,
+      listId: brevo.listId,
+    });
 
     return jsonResponse(
       {
         success: true,
         created,
         leadSaved: true,
+        brevoSynced: true,
+        integrations: {
+          brevo,
+        },
         message: "Thank you. You're on the Uppermost waitlist.",
         lead: {
           id: lead.id,
