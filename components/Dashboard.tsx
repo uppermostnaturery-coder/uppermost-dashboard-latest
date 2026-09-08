@@ -926,9 +926,7 @@ function CompactBarStrip({ items }: { items: BarItem[] }) {
       x: {
         stacked: true,
         grid: { display: false },
-        ticks: {
-          display: false,
-        },
+        ticks: { display: false },
       },
       y: {
         stacked: true,
@@ -986,6 +984,7 @@ function CompactBarStrip({ items }: { items: BarItem[] }) {
     </div>
   );
 }
+
 function MetaPlatformGroupedChart({ stats }: { stats: any }) {
   const chartData = {
     labels: ["Facebook", "Instagram", "Messenger", "Audience Network"],
