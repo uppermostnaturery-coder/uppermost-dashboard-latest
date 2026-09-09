@@ -3735,7 +3735,7 @@ const buyNowChartData = {
       {/* ── SIDEBAR (left) ── */}
       <aside style={{ order: 0, width: 200, minWidth: 200, background: "var(--bg2)", borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
         <div style={{ padding: "16px 18px 14px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <img src="/uppermost-analytics-logo.png" alt="Uppermost" style={{ width: "100%", maxWidth: 150, height: "auto", objectFit: "contain", display: "block", margin: "0 auto" }} />
+          <img src="/uppermost-logo.png" alt="Uppermost" style={{ width: "100%", maxWidth: 150, height: "auto", objectFit: "contain", display: "block", margin: "0 auto" }} />
         </div>
 
         <nav style={{ padding: "12px 0", flex: 1, overflowY: "auto" }}>
