@@ -87,15 +87,13 @@ import {
   SiSafari,
   SiInstagram,
   SiFacebook,
-  SiMicrosoftedge,
-  SiFirefoxbrowser,
   SiOpera,
   SiBrave,
   SiApple,
-  SiWindows,
   SiAndroid,
 } from "react-icons/si";
-import { FiMoreHorizontal, FiGlobe } from 'react-icons/fi';
+
+import { FiMoreHorizontal, FiGlobe } from "react-icons/fi";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Filler, Tooltip, Legend);
 
