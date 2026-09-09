@@ -87,6 +87,7 @@ import {
   SiSafari,
   SiInstagram,
   SiFacebook,
+  SiFirefoxbrowser,
   SiOpera,
   SiBrave,
   SiApple,
@@ -230,8 +231,7 @@ function BrowserCell({ value }: { value?: string | null }) {
   }
 
   if (s.includes("edge")) {
-    return <IconTextCell icon={<SiMicrosoftedge size={20} color="#0AA0F6" />} label="Edge" />;
-  }
+return <IconTextCell icon={<FiGlobe size={20} color="#0AA0F6" />} label="Edge" />;  }
 
   if (s.includes("firefox")) {
     return <IconTextCell icon={<SiFirefoxbrowser size={20} color="#FF7139" />} label="Firefox" />;
@@ -256,8 +256,7 @@ function OSCell({ value }: { value?: string | null }) {
   }
 
   if (s.includes("windows")) {
-    return <IconTextCell icon={<SiWindows size={20} color="#d9d9d9" />} label="Windows" />;
-  }
+return <IconTextCell icon={<Monitor size={17} color="#d9d9d9" />} label="Windows" />;  }
 
   if (s.includes("android")) {
     return <IconTextCell icon={<SiAndroid size={20} color="#9bd36a" />} label="Android" />;
@@ -529,7 +528,7 @@ function BrowserAnalyticsTable({ items }: { items: BarItem[] }) {
     if (s.includes("chrome")) return <SiGooglechrome size={14} color="#4285F4" />;
     if (s.includes("safari")) return <SiSafari size={14} color="#0A84FF" />;
     if (s.includes("instagram")) return <SiInstagram size={14} color="#E4405F" />;
-    if (s.includes("edge")) return <SiMicrosoftedge size={14} color="#0AA0F6" />;
+    if (s.includes("edge")) return <FiGlobe size={14} color="#0AA0F6" />;
     if (s.includes("firefox")) return <SiFirefoxbrowser size={14} color="#FF7139" />;
     if (s.includes("opera")) return <SiOpera size={14} color="#8B8B83" />;
     if (s.includes("brave")) return <SiBrave size={14} color="#8B8B83" />;
@@ -865,7 +864,7 @@ function CompactBarStrip({ items }: { items: BarItem[] }) {
     }
 
     if (s.includes("windows")) {
-      return <SiWindows size={16} color="#d9d9d9" />;
+      return <Monitor size={16} color="#d9d9d9" />;
     }
 
     if (s.includes("android")) {
@@ -5406,7 +5405,7 @@ const buyNowChartData = {
                   <div style={{ paddingLeft: 14, display: "flex", flexDirection: "column", gap: 12 }}>
                     <div style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: "var(--muted)", textTransform: "uppercase" }}>
                     <SiApple size={15} color="#f4eadf" />
-                    <SiWindows size={15} color="#d9d9d9" />
+                    <Monitor size={15} color="#d9d9d9" />
                     <SiAndroid size={15} color="#9bd36a" />
                     <span>Operating Systems</span>
                     </div>                    
