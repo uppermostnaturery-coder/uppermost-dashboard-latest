@@ -258,7 +258,8 @@ function isAllowedOrigin(origin: string | null): boolean {
 function corsHeaders(origin: string | null): Record<string, string> {
   const headers: Record<string, string> = {
     "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, X-Idempotency-Key",
+    "Access-Control-Allow-Headers":
+      "Content-Type, X-Idempotency-Key",
     "Access-Control-Max-Age": "86400",
     "Cache-Control": "no-store",
     "X-Content-Type-Options": "nosniff",
@@ -267,7 +268,7 @@ function corsHeaders(origin: string | null): Record<string, string> {
 
   if (origin && isAllowedOrigin(origin)) {
     headers["Access-Control-Allow-Origin"] = origin;
-  } else {
+  } else if (!origin) {
     headers["Access-Control-Allow-Origin"] = DEFAULT_ORIGIN;
   }
 
@@ -2097,7 +2098,64 @@ export async function POST(request: Request) {
     ) {
       warnings.push(welcomeEmail.message);
     }
+    const whatsappWelcome =
+      input.stage === "completed" &&
+      Boolean(lead.phone ?? input.phone) &&
+      input.consentWhatsApp.value === true
+        ? await fetch(new URL("/api/whatsapp/send", request.url), {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              phone: lead.phone ?? input.phone,
+              leadId: lead.id,
+              email: lead.email,
+            }),
+          })
+            .then(async (response) => {
+              const data = await response.json().catch(() => null);
 
+              if (!response.ok || data?.success === false) {
+                return {
+                  status: "failed",
+                  message:
+                    data?.error ||
+                    data?.message ||
+                    "WhatsApp welcome message failed.",
+                  response: data,
+                };
+              }
+
+              return {
+                status: "sent",
+                metaMessageId: data?.metaMessageId ?? null,
+                response: data,
+              };
+            })
+            .catch((error) => ({
+              status: "failed",
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "Unknown WhatsApp welcome message failure.",
+            }))
+        : {
+            status: "skipped",
+            message:
+              input.stage !== "completed"
+                ? "WhatsApp skipped because lead is not completed."
+                : !Boolean(lead.phone ?? input.phone)
+                  ? "WhatsApp skipped because phone is missing."
+                  : "WhatsApp skipped because consent is false.",
+          };
+
+    if (
+      whatsappWelcome.status === "failed" &&
+      whatsappWelcome.message
+    ) {
+      warnings.push(whatsappWelcome.message);
+    }
     return jsonResponse(
       {
         success: true,
@@ -2107,9 +2165,10 @@ export async function POST(request: Request) {
           ? "Your Uppermost recommendation is ready."
           : "Your Uppermost recommendation has been updated.",
         lead,
-        integrations: {
+              integrations: {
           brevo,
           welcomeEmail,
+          whatsappWelcome,
           lemlist,
         },
         warnings,
