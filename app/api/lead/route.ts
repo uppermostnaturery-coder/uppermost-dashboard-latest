@@ -258,8 +258,7 @@ function isAllowedOrigin(origin: string | null): boolean {
 function corsHeaders(origin: string | null): Record<string, string> {
   const headers: Record<string, string> = {
     "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers":
-      "Content-Type, X-Idempotency-Key",
+    "Access-Control-Allow-Headers": "Content-Type, X-Idempotency-Key",
     "Access-Control-Max-Age": "86400",
     "Cache-Control": "no-store",
     "X-Content-Type-Options": "nosniff",
@@ -268,7 +267,7 @@ function corsHeaders(origin: string | null): Record<string, string> {
 
   if (origin && isAllowedOrigin(origin)) {
     headers["Access-Control-Allow-Origin"] = origin;
-  } else if (!origin) {
+  } else {
     headers["Access-Control-Allow-Origin"] = DEFAULT_ORIGIN;
   }
 
