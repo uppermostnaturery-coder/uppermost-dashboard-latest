@@ -19,6 +19,7 @@ vi.mock("@/lib/commerce/messages", () => ({
 
 describe("Shiprocket webhook authentication", () => {
   let POST: (request: Request) => Promise<Response>;
+  let carrierEventsPOST: (request: Request) => Promise<Response>;
 
   beforeAll(async () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
@@ -27,6 +28,9 @@ describe("Shiprocket webhook authentication", () => {
     process.env.SHIPROCKET_WEBHOOK_SECRET = "shiprocket-test-secret";
 
     ({ POST } = await import("../../app/api/webhooks/shiprocket/route"));
+    ({ POST: carrierEventsPOST } = await import(
+      "../../app/api/webhooks/carrier-events/route"
+    ));
   });
 
   beforeEach(() => {
@@ -44,6 +48,15 @@ describe("Shiprocket webhook authentication", () => {
 
   it("accepts a valid x-api-key", async () => {
     const response = await POST(webhookRequest({ "x-api-key": "shiprocket-test-secret" }));
+
+    expect(response.status).toBe(202);
+    expect(mocks.from).toHaveBeenCalledWith("shipments");
+  });
+
+  it("serves the authenticated webhook through the carrier-events alias", async () => {
+    const response = await carrierEventsPOST(
+      webhookRequest({ "x-api-key": "shiprocket-test-secret" })
+    );
 
     expect(response.status).toBe(202);
     expect(mocks.from).toHaveBeenCalledWith("shipments");
