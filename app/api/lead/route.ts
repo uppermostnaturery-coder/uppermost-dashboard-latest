@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
+import { upsertBrevoContact } from "../../../lib/brevo/contacts";
+
+import { getBrevoServerEnv } from "../../../lib/brevo/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,6 +43,7 @@ type LeadRequestBody = {
   stage?: unknown;
   productPreference?: unknown;
 
+  consent?: unknown;
   consentEmail?: unknown;
   marketingConsent?: unknown;
   consentWhatsApp?: unknown;
@@ -364,11 +368,8 @@ function normalizePurposeValue(
   const purpose = normalizedIntent ?? normalizedPurpose;
 
   if (!purpose) {
-    throw new RequestValidationError(
-      "A valid purpose or intent is required.",
-      "purpose"
-    );
-  }
+  return "family";
+}
 
   return purpose;
 }
@@ -417,6 +418,7 @@ function readBoolean(
 function resolveMarketingConsent(
   body: LeadRequestBody
 ): ConsentValue {
+  const consent = readBoolean(body.consent, "consent");
   const consentEmail = readBoolean(
     body.consentEmail,
     "consentEmail"
@@ -426,20 +428,28 @@ function resolveMarketingConsent(
     "marketingConsent"
   );
 
-  if (
-    consentEmail.provided &&
-    marketingConsent.provided &&
-    consentEmail.value !== marketingConsent.value
-  ) {
+  const providedConsents = [
+    consent,
+    consentEmail,
+    marketingConsent,
+  ].filter((item) => item.provided);
+
+  const hasMismatch = providedConsents.some(
+    (item) => item.value !== providedConsents[0]?.value
+  );
+
+  if (hasMismatch) {
     throw new RequestValidationError(
-      "consentEmail and marketingConsent must match.",
+      "consent, consentEmail and marketingConsent must match.",
       "marketingConsent"
     );
   }
 
   return marketingConsent.provided
     ? marketingConsent
-    : consentEmail;
+    : consentEmail.provided
+      ? consentEmail
+      : consent;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -580,11 +590,19 @@ function normalizeLeadInput(
   );
   const intent = INTENT_MAP[purpose];
   const stage = normalizeStage(body.stage, phone);
+  const marketingConsent = resolveMarketingConsent(body);
 
   if (stage === "completed" && !phone) {
     throw new RequestValidationError(
       "Phone number is required when stage is completed.",
       "phone"
+    );
+  }
+
+  if (stage === "completed" && marketingConsent.value !== true) {
+    throw new RequestValidationError(
+      "Email marketing consent is required before submitting.",
+      "marketingConsent"
     );
   }
 
@@ -619,7 +637,7 @@ function normalizeLeadInput(
       body.productPreference,
       100
     ),
-    marketingConsent: resolveMarketingConsent(body),
+    marketingConsent,
     consentWhatsApp: readBoolean(
       body.consentWhatsApp,
       "consentWhatsApp"
@@ -1082,6 +1100,90 @@ async function recordLeadEvent(
   });
 
   return "Lead was saved, but its activity event was not recorded.";
+}
+async function recordConsentRecord(
+  leadId: string,
+  input: NormalizedLeadInput,
+  request: Request,
+  now: string
+): Promise<string | null> {
+  const { error } = await supabaseAdmin
+    .from("consent_records")
+    .insert({
+      lead_id: leadId,
+      email: input.email,
+      phone: input.phone,
+      consent_email: input.marketingConsent.value,
+      consent_whatsapp: input.consentWhatsApp.value,
+      consent_call: input.consentCall.value,
+      source: "website_popup",
+      page_url: input.landingPage,
+      user_agent: request.headers.get("user-agent"),
+      ip_address:
+        request.headers.get("x-forwarded-for") ||
+        request.headers.get("x-real-ip"),
+      recorded_at: now,
+    });
+
+  if (!error) {
+    return null;
+  }
+
+  console.error("Consent record insert failed:", {
+    leadId,
+    code: error.code,
+    message: error.message,
+  });
+
+  return "Lead was saved, but consent record was not saved.";
+}
+
+async function recordAnalyticsLeadEvent(
+  leadId: string,
+  input: NormalizedLeadInput,
+  request: Request,
+  now: string
+): Promise<string | null> {
+  const eventName =
+    input.stage === "completed"
+      ? "lead_form_completed"
+      : "lead_email_submitted";
+
+  const { error } = await supabaseAdmin
+    .from("analytics_events")
+    .insert({
+      visitor_id: input.visitorId,
+      session_id: input.sessionId,
+      event_name: eventName,
+      page_path: input.landingPage,
+      page_url: input.landingPage,
+      metadata: {
+        lead_id: leadId,
+        email: input.email,
+        phone: input.phone,
+        source: "website_popup",
+        purpose: input.purpose,
+        intent: input.intent.publicIntent,
+        segment: input.intent.segment,
+        stage: input.stage,
+        recommended_product: input.intent.recommendedProduct,
+        popup_name: "ghee_recommendation",
+        user_agent: request.headers.get("user-agent"),
+      },
+      created_at: now,
+    });
+
+  if (!error) {
+    return null;
+  }
+
+  console.error("Analytics lead event insert failed:", {
+    leadId,
+    code: error.code,
+    message: error.message,
+  });
+
+  return "Lead was saved, but dashboard analytics event was not saved.";
 }
 
 function lemlistAuthorizationHeader(): string {
@@ -1546,6 +1648,232 @@ async function syncLeadToLemlist(
   };
 }
 }
+// -----------------------------------------------------------------------------
+// Brevo Contact Synchronization
+// Creates/updates a Brevo contact and adds the contact to the
+// "Uppermost — Launch Waitlist" list after a successful lead capture.
+// -----------------------------------------------------------------------------
+type BrevoSyncResult =
+  | {
+      status: "synced";
+      listId: number;
+    }
+  | {
+      status: "skipped_no_consent";
+      listId: number;
+      message: string;
+    }
+  | {
+      status: "failed";
+      listId: number | null;
+      message: string;
+    };
+
+async function syncLeadToBrevo(
+  input: NormalizedLeadInput,
+  lead: {
+    id: string;
+    firstName: string | null;
+    phone: string | null;
+    marketingConsent: boolean;
+    leadScore?: number | null;
+    status?: string | null;
+    humanFollowupRequired?: boolean | null;
+  }
+): Promise<BrevoSyncResult> {
+  try {
+    const { BREVO_MARKETING_LIST_ID } = getBrevoServerEnv();
+    const listId = Number(BREVO_MARKETING_LIST_ID);
+
+    if (!Number.isInteger(listId) || listId <= 0) {
+      throw new Error("BREVO_MARKETING_LIST_ID must be a valid positive number.");
+    }
+
+    if (!lead.marketingConsent) {
+      return {
+        status: "skipped_no_consent",
+        listId,
+        message: "Brevo sync skipped because email marketing consent is false.",
+      };
+    }
+
+    const brevoPhone = lead.phone ?? input.phone ?? null;
+
+    console.log("Brevo sync phone debug:", {
+      email: input.email,
+      inputPhone: input.phone,
+      leadPhone: lead.phone,
+      brevoPhone,
+      stage: input.stage,
+    });
+
+    await upsertBrevoContact({
+      email: input.email,
+      phone: brevoPhone,
+      listIds: [listId],
+      updateEnabled: true,
+      attributes: {
+        firstName: lead.firstName ?? "Uppermost Customer",
+        customerId: lead.id,
+        purpose: input.purpose,
+        intent: input.intent.publicIntent,
+        segment: input.intent.segment,
+        lifecycleStage: input.stage,
+        recommendedProduct: input.intent.recommendedProduct,
+        templateFamily: input.intent.templateFamily,
+        emailConsent: lead.marketingConsent,
+        leadScore: lead.leadScore ?? 0,
+        status: lead.status ?? "new",
+        humanFollowupRequired: lead.humanFollowupRequired ?? false,
+      },
+    });
+
+    return {
+      status: "synced",
+      listId,
+    };
+  } catch (error) {
+    console.error("Brevo sync failed:", {
+      email: input.email,
+      leadId: lead.id,
+      error,
+    });
+
+    return {
+      status: "failed",
+      listId: null,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Unknown Brevo synchronization failure.",
+    };
+  }
+}
+
+type BrevoWelcomeEmailResult =
+  | {
+      status: "sent";
+      templateId: number;
+    }
+  | {
+      status: "skipped_not_completed";
+      message: string;
+    }
+  | {
+      status: "skipped_no_consent";
+      message: string;
+    }
+  | {
+      status: "failed";
+      message: string;
+    };
+
+async function sendBrevoWelcomeEmail(
+  input: NormalizedLeadInput,
+  lead: {
+    id: string;
+    firstName: string | null;
+    marketingConsent: boolean;
+  }
+): Promise<BrevoWelcomeEmailResult> {
+  try {
+    if (input.stage !== "completed") {
+      return {
+        status: "skipped_not_completed",
+        message:
+          "Welcome email skipped until phone step is completed.",
+      };
+    }
+
+    if (!lead.marketingConsent) {
+      return {
+        status: "skipped_no_consent",
+        message:
+          "Welcome email skipped because email marketing consent is false.",
+      };
+    }
+
+    const apiKey = process.env.BREVO_API_KEY;
+
+    if (!apiKey) {
+      throw new Error("BREVO_API_KEY is missing.");
+    }
+
+    const templateId = Number(
+      process.env.BREVO_WELCOME_TEMPLATE_ID
+    );
+
+    if (!Number.isInteger(templateId) || templateId <= 0) {
+      throw new Error(
+        "BREVO_WELCOME_TEMPLATE_ID must be a valid positive number."
+      );
+    }
+
+    const firstName =
+      lead.firstName ?? input.firstName ?? "Uppermost Customer";
+
+    const response = await fetch(
+      "https://api.brevo.com/v3/smtp/email",
+      {
+        method: "POST",
+        headers: {
+          "api-key": apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          to: [
+            {
+              email: input.email,
+              name: firstName,
+            },
+          ],
+          templateId,
+          params: {
+            firstName,
+            email: input.email,
+            phone: input.phone,
+            purpose: input.purpose,
+            intent: input.intent.publicIntent,
+            segment: input.intent.segment,
+            recommendedProduct:
+              input.intent.recommendedProduct,
+            templateFamily: input.intent.templateFamily,
+            uppermostLeadId: lead.id,
+          },
+        }),
+        cache: "no-store",
+      }
+    );
+
+    if (!response.ok) {
+      const responseBody = await parseFetchResponse(response);
+      throw new Error(
+        `Brevo welcome email failed (${response.status}): ${responseBodyText(
+          responseBody
+        )}`
+      );
+    }
+
+    return {
+      status: "sent",
+      templateId,
+    };
+  } catch (error) {
+    console.error("Brevo welcome email failed:", {
+      email: input.email,
+      leadId: lead.id,
+      error,
+    });
+
+    return {
+      status: "failed",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Unknown Brevo welcome email failure.",
+    };
+  }
+}
 async function loadFinalLead(leadId: string) {
   const { data, error } = await supabaseAdmin
     .from("um_leads")
@@ -1646,6 +1974,28 @@ export async function POST(request: Request) {
       warnings.push(eventWarning);
     }
 
+    const consentWarning = await recordConsentRecord(
+      leadId,
+      input,
+      request,
+      now
+    );
+
+    if (consentWarning) {
+      warnings.push(consentWarning);
+    }
+
+    const analyticsWarning = await recordAnalyticsLeadEvent(
+      leadId,
+      input,
+      request,
+      now
+    );
+
+    if (analyticsWarning) {
+      warnings.push(analyticsWarning);
+    }
+
     const lemlist = await syncLeadToLemlist(
       input,
       leadId,
@@ -1710,6 +2060,102 @@ export async function POST(request: Request) {
               : previousLead?.consent_email ?? false,
         };
 
+    // ============================================================================
+    // EXECUTE BREVO CONTACT SYNC
+    // Creates/updates the contact and adds it to the Launch Waitlist.
+    // ============================================================================
+      const brevo = await syncLeadToBrevo(input, {
+      id: lead.id,
+      firstName: lead.firstName ?? null,
+      phone: lead.phone ?? input.phone ?? null,
+      marketingConsent: Boolean(lead.marketingConsent),
+      leadScore:
+        "leadScore" in lead && typeof lead.leadScore === "number"
+          ? lead.leadScore
+          : 0,
+      status:
+        "status" in lead && typeof lead.status === "string"
+          ? lead.status
+          : "new",
+      humanFollowupRequired:
+        "humanFollowupRequired" in lead
+          ? Boolean(lead.humanFollowupRequired)
+          : false,
+    });
+    if (brevo.status !== "synced" && brevo.message) {
+      warnings.push(brevo.message);
+    }
+
+    const welcomeEmail = await sendBrevoWelcomeEmail(input, {
+      id: lead.id,
+      firstName: lead.firstName ?? null,
+      marketingConsent: Boolean(lead.marketingConsent),
+    });
+
+    if (
+      welcomeEmail.status === "failed" &&
+      welcomeEmail.message
+    ) {
+      warnings.push(welcomeEmail.message);
+    }
+    const whatsappWelcome =
+      input.stage === "completed" &&
+      Boolean(lead.phone ?? input.phone) &&
+      input.consentWhatsApp.value === true
+        ? await fetch(new URL("/api/whatsapp/send", request.url), {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              phone: lead.phone ?? input.phone,
+              leadId: lead.id,
+              email: lead.email,
+            }),
+          })
+            .then(async (response) => {
+              const data = await response.json().catch(() => null);
+
+              if (!response.ok || data?.success === false) {
+                return {
+                  status: "failed",
+                  message:
+                    data?.error ||
+                    data?.message ||
+                    "WhatsApp welcome message failed.",
+                  response: data,
+                };
+              }
+
+              return {
+                status: "sent",
+                metaMessageId: data?.metaMessageId ?? null,
+                response: data,
+              };
+            })
+            .catch((error) => ({
+              status: "failed",
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "Unknown WhatsApp welcome message failure.",
+            }))
+        : {
+            status: "skipped",
+            message:
+              input.stage !== "completed"
+                ? "WhatsApp skipped because lead is not completed."
+                : !Boolean(lead.phone ?? input.phone)
+                  ? "WhatsApp skipped because phone is missing."
+                  : "WhatsApp skipped because consent is false.",
+          };
+
+    if (
+      whatsappWelcome.status === "failed" &&
+      whatsappWelcome.message
+    ) {
+      warnings.push(whatsappWelcome.message);
+    }
     return jsonResponse(
       {
         success: true,
@@ -1719,7 +2165,10 @@ export async function POST(request: Request) {
           ? "Your Uppermost recommendation is ready."
           : "Your Uppermost recommendation has been updated.",
         lead,
-        integrations: {
+              integrations: {
+          brevo,
+          welcomeEmail,
+          whatsappWelcome,
           lemlist,
         },
         warnings,

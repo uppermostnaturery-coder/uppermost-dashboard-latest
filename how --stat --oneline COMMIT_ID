@@ -1,0 +1,20 @@
+[33m9df5bc6[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m, [m[1;32mmain[m[33m)[m Fix Brevo direct API integration
+[33md665655[m Re-enable Brevo launch signup integration
+[33m685551e[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mfeature-branch[m[33m)[m Re-enable Brevo launch signup integration
+[33mcc3b9cc[m Support Framer email field
+[33m6c12f58[m feat: add Framer to Supabase lead capture
+[33ma99b488[m[33m ([m[1;35mrefs/stash[m[33m)[m On feature-branch: temporary unrelated local changes
+[33m58cb091[m index on feature-branch: 1fc7bac feat: connect Framer lead form to Supabase
+[33mf6a8306[m untracked files on feature-branch: 1fc7bac feat: connect Framer lead form to Supabase
+[33m1fc7bac[m feat: connect Framer lead form to Supabase
+[33m66758b0[m feat: add Supabase-only launch signup endpoint
+[33me07a72c[m[33m ([m[1;31morigin/feature-branch[m[33m)[m feat: enhance analytics dashboard overview
+[33m984a928[m chore: add Uppermost analytics logo asset
+[33m1004743[m feat: add Lemlist analytics dashboard
+[33mbdb386a[m Update lead API integration
+[33m236efc7[m Preserve multiple lead purposes and fix Lemlist mapping
+[33m3dfaca8[m Add unique feature branch
+[33m62e00f5[m Fix realtime active session count
+[33m4f114ca[m Add lead API error diagnostics
+[33mcd07b31[m Add Uppermost lead API
+[33md58c441[m update chart
