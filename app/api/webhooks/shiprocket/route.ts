@@ -18,8 +18,8 @@ function messageForShipment(status: string): CustomerMessageKey | null {
 
 export async function POST(request: Request) {
   try {
-    const supplied = request.headers.get("x-shiprocket-webhook-secret") ??
-      request.headers.get("x-api-key") ??
+    const supplied = request.headers.get("x-api-key") ??
+      request.headers.get("x-shiprocket-webhook-secret") ??
       request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
     if (!safeEqual(supplied, getShiprocketEnv().webhookSecret)) {
       return commerceJson({ ok: false, error: { code: "INVALID_WEBHOOK_SECRET", message: "Invalid secret." } }, 401, null);
@@ -74,4 +74,3 @@ export async function POST(request: Request) {
     return errorResponse(error, null);
   }
 }
-
