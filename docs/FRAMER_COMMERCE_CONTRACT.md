@@ -1,7 +1,7 @@
 # Uppermost Framer Commerce Frontend Contract
 
 **Status:** generated from implemented code  
-**Generated:** 24 September 2026  
+**Generated:** 25 September 2026
 **Frontend:** Framer  
 **Backend:** the deployed Next.js/Vercel origin  
 **Companion types:** `docs/FRAMER_COMMERCE_TYPES.ts`
@@ -18,7 +18,7 @@ No secret belongs in Framer. Framer may receive the Razorpay **key ID**, which i
 - All public fields ending in `_paise` are integer paise. `100` paise is ₹1. Do not divide before sending a value to Razorpay Checkout; Razorpay also expects the amount in paise.
 - Currency is currently the literal `INR`.
 - Timestamps are ISO-8601 strings. Delivery dates from the experience API are PostgreSQL date strings (`YYYY-MM-DD`) or `null`.
-- Successful and failed responses include `Cache-Control: no-store`.
+- Successful catalog responses use a 30-second public cache. Every other successful response and all failed responses include `Cache-Control: no-store`.
 - Unknown JSON keys are stripped by the current Zod object schemas; Framer should still send only documented fields.
 
 ## 2. CORS contract
@@ -52,7 +52,7 @@ Referrer-Policy: no-referrer
 Vary: Origin
 ```
 
-For successful/preflight `GET /api/checkout/status` and `GET /api/experience`, `Access-Control-Allow-Methods` is `GET, OPTIONS`. Their error responses currently fall back to `GET, POST, OPTIONS`. There is no `Access-Control-Allow-Credentials`; these six endpoints do not use browser cookies.
+For successful/preflight `GET /api/commerce/catalog`, `GET /api/checkout/status`, and `GET /api/experience`, `Access-Control-Allow-Methods` is `GET, OPTIONS`. Their error responses currently fall back to `GET, POST, OPTIONS`. There is no `Access-Control-Allow-Credentials`; these seven endpoints do not use browser cookies.
 
 ## 3. Shared request rules
 
@@ -138,6 +138,7 @@ The current implementation uses a per-process, per-IP, one-minute in-memory limi
 
 | Endpoint | Requests/minute/IP |
 |---|---:|
+| catalog | 60 |
 | quote | 40 |
 | serviceability | 40 |
 | prepare | 15 |
@@ -280,7 +281,157 @@ Dynamic placeholders below are interpolated server values; provider-private erro
 | experience | 400 | `INVALID_EXPERIENCE_TOKEN` | `Invalid experience token.` |
 | experience | 404 | `EXPERIENCE_NOT_FOUND` | `Order experience was not found.` |
 
-## 5. `POST /api/commerce/quote`
+## 5. `GET /api/commerce/catalog`
+
+Returns the public product-display snapshot for Framer. It accepts no body, no `guest_session_id`, and no `Idempotency-Key`.
+
+This endpoint is the display/catalog authority. `POST /api/commerce/quote` remains the transactional authority for payable amounts, promotion eligibility, entitlements, Pair qualification, subscription benefits, and final inventory validation.
+
+### Headers
+
+```text
+Origin: <allowed Framer origin>
+Accept: application/json (optional)
+```
+
+### Request example
+
+```http
+GET /api/commerce/catalog HTTP/1.1
+Origin: https://www.uppermost.store
+```
+
+### Success: HTTP 200
+
+```json
+{
+  "ok": true,
+  "generated_at": "2026-09-25T00:00:00.000Z",
+  "currency": "INR",
+  "products": [
+    {
+      "product_key": "gir",
+      "name": "Gir Cow Ghee",
+      "active": true,
+      "variants": [
+        {
+          "sku": "GIR-1000",
+          "size": "1 L",
+          "active": true,
+          "sellable": true,
+          "pricing": {
+            "standard_price_paise": 750000,
+            "current_display_price_paise": 700000
+          },
+          "availability": {
+            "status": "IN_STOCK",
+            "release_total": null,
+            "release_remaining": null
+          },
+          "active_offers": [
+            {
+              "promotion_id": "<uuid>",
+              "code": "GIR_1L_EARLY_BIRD",
+              "label": "Gir 1 L Early Bird",
+              "display_text": "Early-bird price until 4 October",
+              "valid_from": "2026-09-23T18:30:00.000Z",
+              "valid_until": "2026-10-04T18:30:00.000Z"
+            }
+          ]
+        },
+        {
+          "sku": "GIR-500",
+          "size": "500 ml",
+          "active": true,
+          "sellable": true,
+          "pricing": {
+            "standard_price_paise": 380000,
+            "current_display_price_paise": 380000
+          },
+          "availability": {
+            "status": "IN_STOCK",
+            "release_total": null,
+            "release_remaining": null
+          },
+          "active_offers": []
+        }
+      ]
+    },
+    {
+      "product_key": "murrah",
+      "name": "Murrah Buffalo Ghee",
+      "active": true,
+      "variants": [
+        {
+          "sku": "MURRAH-1000",
+          "size": "1 L",
+          "active": true,
+          "sellable": true,
+          "pricing": {
+            "standard_price_paise": 550000,
+            "current_display_price_paise": 500000
+          },
+          "availability": {
+            "status": "IN_STOCK",
+            "release_total": null,
+            "release_remaining": null
+          },
+          "active_offers": [
+            {
+              "promotion_id": "<uuid>",
+              "code": "MURRAH_1L_EARLY_BIRD",
+              "label": "Murrah 1 L Early Bird",
+              "display_text": "Early-bird price until 4 October",
+              "valid_from": "2026-09-23T18:30:00.000Z",
+              "valid_until": "2026-10-04T18:30:00.000Z"
+            }
+          ]
+        },
+        {
+          "sku": "MURRAH-500",
+          "size": "500 ml",
+          "active": true,
+          "sellable": true,
+          "pricing": {
+            "standard_price_paise": 300000,
+            "current_display_price_paise": 300000
+          },
+          "availability": {
+            "status": "IN_STOCK",
+            "release_total": null,
+            "release_remaining": null
+          },
+          "active_offers": []
+        }
+      ]
+    }
+  ]
+}
+```
+
+The example shows only each SKU-specific early-bird offer for brevity. The implemented response can also include explicitly public Pair, subscription, and free-shipping display metadata where the promotion can describe that variant. Their presence is informational and does not assert cart eligibility.
+
+Contract details:
+
+- `standard_price_paise` and `current_display_price_paise` are integer paise.
+- Display price is calculated with the same pricing engine as quote, using the currently active, explicitly public promotions and a one-unit buy-once display context.
+- `availability.status` is one of `IN_STOCK`, `LOW_STOCK`, `OUT_OF_STOCK`, or `UNAVAILABLE`.
+- `release_total` and `release_remaining` are nullable. They remain `null` until an active release allocation exists for that SKU.
+- For an active release, remaining is `max(release_capacity - release_committed, 0)`, capped by known physical sellable inventory.
+- Inactive products/variants are returned with `active:false`, `sellable:false`, and `UNAVAILABLE` so Framer can stop offering stale selections.
+- Private conditions, actions, cohorts, entitlements, usage counters, stacking rules, warehouse details, and provider metadata are never returned.
+- Successful responses use `Cache-Control: public, max-age=30, s-maxage=30, stale-while-revalidate=30`.
+- A later `/quote` response always wins over this display snapshot.
+
+### Errors
+
+| HTTP | Code | Meaning |
+|---:|---|---|
+| 403 | `ORIGIN_NOT_ALLOWED` | Browser origin is not in the commerce allowlist. |
+| 429 | `RATE_LIMITED` | More than 60 requests/minute/IP on the current server instance. |
+| 500 | `SYSTEM_ERROR` | Catalog storage or the commerce service is unavailable. |
+
+## 6. `POST /api/commerce/quote`
 
 Creates and persists an authoritative quote. No idempotency header is used; repeating the call creates a new quote.
 
@@ -477,7 +628,7 @@ In addition to the common errors:
 
 Shiprocket serviceability failure does not fail this endpoint. It returns a created quote with `shipping.serviceable: false`, null delivery dates, zero shipping, and a fallback message.
 
-## 6. `POST /api/shipping/serviceability`
+## 7. `POST /api/shipping/serviceability`
 
 Checks serviceability against the current authoritative catalog. Framer never sends origin postcode, weight, dimensions, declared value, or payment mode.
 
@@ -548,7 +699,7 @@ The frontend must not treat this fallback as serviceable.
 
 The same catalog errors as quote apply: `UNKNOWN_SKU` (`400`), `SKU_UNAVAILABLE` (`409`), `INSUFFICIENT_INVENTORY` (`409`), and `INVENTORY_UNAVAILABLE` (`503`), plus the common errors.
 
-## 7. `POST /api/checkout/prepare`
+## 8. `POST /api/checkout/prepare`
 
 Creates the customer/address snapshots, checkout session, Uppermost order, optional subscription/mandate records, Razorpay Order, and public checkout payload.
 
@@ -728,7 +879,7 @@ In addition to common and catalog errors:
 
 Razorpay/customer/database setup errors are returned only as `500 SYSTEM_ERROR`, with no raw provider details.
 
-## 8. `POST /api/payments/verify`
+## 9. `POST /api/payments/verify`
 
 Call from the Razorpay browser success handler. Browser success is not payment finality; this endpoint verifies the signature, fetches Razorpay's payment, checks exact order/amount/currency, reconciles state, and returns the checkout-status shape.
 
@@ -835,7 +986,7 @@ The returned message can be overridden by an active database template. `cta_labe
 
 Unexpected Razorpay, database, reconciliation, or fulfillment lookup errors become `500 SYSTEM_ERROR`. Shiprocket remote order creation failure is caught internally after payment capture; it does not downgrade a confirmed payment or leak provider errors.
 
-## 9. `GET /api/checkout/status?session_id=<uuid>`
+## 10. `GET /api/checkout/status?session_id=<uuid>`
 
 Read-only polling endpoint. It does not require an idempotency key, guest ID, bearer token, or request body.
 
@@ -932,7 +1083,7 @@ Polling rules:
 
 Common origin, rate-limit, and system errors also apply.
 
-## 10. `GET /api/experience?token=<experience-token>`
+## 11. `GET /api/experience?token=<experience-token>`
 
 Returns the customer-safe order journey. The API expects the token under `token`, not `t`.
 
@@ -1056,11 +1207,11 @@ Field behavior:
 
 Common origin, rate-limit, and system errors also apply.
 
-## 11. Exact cart-shape examples
+## 12. Exact cart-shape examples
 
 These examples use the seeded prices and launch promotions active on 24 September 2026. They are illustrative live-data examples, not client-side pricing authority. Framer must always render the returned quote.
 
-### 11.1 Mixed: Gir subscription + Murrah buy once
+### 12.1 Mixed: Gir subscription + Murrah buy once
 
 Quote items:
 
@@ -1097,7 +1248,7 @@ Implemented result under the seeded launch window:
 - Mandate maximum: `max(1150000, 700000 + 250000) = 1150000` paise.
 - Prepare uses `payment_kind: RECURRING_AUTH`, charges the entire initial mixed cart, and returns a subscription UUID.
 
-### 11.2 Pure buy once: Gir
+### 12.2 Pure buy once: Gir
 
 ```json
 [
@@ -1122,7 +1273,7 @@ Implemented launch-window example:
 - Recurring projection is `0`; mandate and interval are `null`; `subscription_id` is `null`.
 - `recurring_consent` may be omitted.
 
-### 11.3 Pure subscription: Gir every 30 days
+### 12.3 Pure subscription: Gir every 30 days
 
 ```json
 [
@@ -1148,10 +1299,11 @@ Implemented launch-window example:
 - Prepare uses `payment_kind: RECURRING_AUTH`, returns Razorpay customer ID and Uppermost subscription UUID, and requires accepted recurring consent.
 - `CONFIRMED` requires captured payment plus a usable recurring token. Captured payment without the usable token is `ACTIVATION_PENDING`.
 
-## 12. Framer integration sequence
+## 13. Framer integration sequence
 
 ```text
-stable guest_session_id
+GET catalog for display state
+  -> stable guest_session_id
   -> POST quote
   -> display server totals/benefits/mandate cap
   -> POST serviceability when pincode/cart changes
@@ -1174,9 +1326,9 @@ Frontend invariants:
 - Never place `quote_token` or experience token into analytics events.
 - Never persist provider secrets; none are required by this flow.
 
-## 13. Drift report
+## 14. Drift report
 
-### 13.1 Actual code vs `UPPERMOST_COMMERCE_OPENAPI.yaml`
+### 14.1 Actual code vs `UPPERMOST_COMMERCE_OPENAPI.yaml`
 
 `UPPERMOST_COMMERCE_OPENAPI.yaml` is not present anywhere in the current repository or the supplied text attachments. Therefore a literal operation/schema-by-schema diff against that file cannot be performed without inventing content. This missing canonical artifact is itself a contract drift and should be resolved by restoring or regenerating the OpenAPI document from this implemented contract.
 
@@ -1199,11 +1351,13 @@ The earlier implementation brief that contained the intended API examples differ
 15. Actual error surface additionally includes media type, payload size, invalid JSON, rate limiting, inventory-provider failure, customer identity conflict, payment-attempt not found, checkout not found, and experience-token errors.
 16. Actual idempotency stores and replays post-reservation error responses, including `QUOTE_CHANGED` and unexpected `500` results.
 
-### 13.2 Actual code vs `docs/UPPERMOST_COMMERCE_ARCHITECTURE.md`
+### 14.2 Actual code vs `docs/UPPERMOST_COMMERCE_ARCHITECTURE.md`
 
 Aligned behavior:
 
 - Framer owns visible UI; the backend owns pricing, checkout, payment, subscription, shipping, and safe state.
+- `GET /api/commerce/catalog` owns public display state while `POST /api/commerce/quote` remains transactional authority.
+- Release allocations and explicitly public promotion copy are stored server-side; private promotion rules are not exposed.
 - Per-line buy-once/subscription and mixed carts are implemented.
 - Initial payment includes every line; renewal pricing contains subscription lines only.
 - Server prices in integer paise and re-evaluates promotions.
@@ -1233,4 +1387,4 @@ Implemented drift or narrower behavior:
 13. **The frozen must-pass matrix is only partially automated.** Existing tests cover pricing combinations, promotion timing/eligibility, quote validation helpers, idempotency resolution, duplicate webhook decision, renewal claim gating, and mandate-cap comparison. They do not route-test the exact JSON/CORS contracts, Shiprocket-unavailable flow, pending-to-late-success reconciliation, provider webhooks end to end, or cross-order experience-token isolation.
 14. **Prepare failure recovery is stricter than the architecture text explains.** Once an idempotency record has started, even an unexpected `500` is stored as completed and replayed for that key. A checkout row created before a later provider failure can also make the quote unusable through the one-checkout-per-quote constraint.
 
-These drift findings are documentation only. No runtime behavior was changed while producing this contract.
+These drift findings describe the implementation as of 25 September 2026. The public catalog endpoint and its documented schema were added together; existing checkout contracts were not changed.

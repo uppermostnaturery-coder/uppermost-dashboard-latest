@@ -19,6 +19,58 @@ export type PurchaseMode = "BUY_ONCE" | "SUBSCRIPTION";
 export type SubscriptionIntervalDays = 15 | 30 | 60;
 export type PaymentKind = "ONE_TIME" | "RECURRING_AUTH";
 
+export type CatalogAvailabilityStatus =
+  | "IN_STOCK"
+  | "LOW_STOCK"
+  | "OUT_OF_STOCK"
+  | "UNAVAILABLE";
+
+export interface CatalogOffer {
+  promotion_id: string;
+  code: string;
+  label: string;
+  display_text: string;
+  valid_from: string | null;
+  valid_until: string | null;
+}
+
+export interface CatalogVariant {
+  sku: string;
+  size: string;
+  active: boolean;
+  sellable: boolean;
+  pricing: {
+    /** Integer paise; display snapshot only. */
+    standard_price_paise: number;
+    /** Integer paise; /api/commerce/quote remains checkout authority. */
+    current_display_price_paise: number;
+  };
+  availability: {
+    status: CatalogAvailabilityStatus;
+    /** Null when no current release allocation is configured. */
+    release_total: number | null;
+    /** Null when no current release allocation is configured. */
+    release_remaining: number | null;
+  };
+  active_offers: CatalogOffer[];
+}
+
+export interface CatalogProduct {
+  product_key: string;
+  name: string;
+  active: boolean;
+  variants: CatalogVariant[];
+}
+
+export interface CatalogSuccessResponse {
+  ok: true;
+  generated_at: string;
+  currency: Currency;
+  products: CatalogProduct[];
+}
+
+export type CatalogResponse = CatalogSuccessResponse | CommerceErrorResponse;
+
 export type NormalizedPaymentState =
   | "CHECKOUT_READY"
   | "AUTHORIZING"
@@ -456,6 +508,7 @@ export type ExperienceResponse =
   | CommerceErrorResponse;
 
 export type CommerceApiResponse =
+  | CatalogResponse
   | QuoteResponse
   | ShippingServiceabilityResponse
   | CheckoutPrepareResponse
