@@ -159,7 +159,11 @@ export default function BrevoAnalytics({ days = 1 }: { days?: number }) {
     }, 300);
 
     return () => window.clearTimeout(handle);
-  }, [searchText]);
+    }, [searchText]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter, activityFilter]);
 
   useEffect(() => {
     let active = true;
@@ -241,7 +245,7 @@ const workflowFinished = data?.finished || Math.max(deliveredCount, openedCount)
 const currentlyRunning =
   data?.currentlyRunning ||
   Math.max(sentCount - deliveredCount - bouncedCount, 0);
-
+ 
   return (
     <div
       style={{
@@ -477,65 +481,66 @@ const currentlyRunning =
                 Showing contacts from selected range: {formatRangeLabel(days)}
               </div>
             </div>
-       <select
-  value={statusFilter}
-  onChange={(event) => setStatusFilter(event.target.value)}
-  style={{
-    padding: "8px 10px",
-    borderRadius: 8,
-    border: "1px solid rgba(231,198,154,0.14)",
-    background: "rgba(255,255,255,0.03)",
-    color: "var(--text)",
-    fontSize: 12,
-  }}
->
-  <option value="all">All Status</option>
-  <option value="subscribed">Subscribed</option>
-  <option value="unsubscribed">Unsubscribed</option>
-  <option value="blocklisted">Blocklisted</option>
-</select>
+     <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+  <select
+    value={statusFilter}
+    onChange={(event) => setStatusFilter(event.target.value)}
+    style={{
+      padding: "8px 10px",
+      borderRadius: 8,
+      border: "1px solid rgba(231,198,154,0.14)",
+      background: "rgba(255,255,255,0.03)",
+      color: "var(--text)",
+      fontSize: 12,
+    }}
+  >
+    <option value="all">All Status</option>
+    <option value="subscribed">Subscribed</option>
+    <option value="unsubscribed">Unsubscribed</option>
+    <option value="blocklisted">Blocklisted</option>
+  </select>
 
-<select
-  value={activityFilter}
-  onChange={(event) => setActivityFilter(event.target.value)}
-  style={{
-    padding: "8px 10px",
-    borderRadius: 8,
-    border: "1px solid rgba(231,198,154,0.14)",
-    background: "rgba(255,255,255,0.03)",
-    color: "var(--text)",
-    fontSize: 12,
-  }}
->
-  <option value="all">All Activity</option>
-  <option value="clicked">Clicked</option>
-  <option value="opened">Opened</option>
-  <option value="delivered">Delivered</option>
-  <option value="bounced">Bounced</option>
-  <option value="no activity">No Activity</option>
-</select>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              <input
-                value={searchText}
-                onChange={(event) => setSearchText(event.target.value)}
-                placeholder="Search email or phone"
-                style={{
-                  minWidth: 200,
-                  padding: "8px 10px",
-                  borderRadius: 8,
-                  border: "1px solid rgba(231,198,154,0.14)",
-                  background: "rgba(255,255,255,0.03)",
-                  color: "var(--text)",
-                  fontSize: 12,
-                }}
-              />
+  <select
+    value={activityFilter}
+    onChange={(event) => setActivityFilter(event.target.value)}
+    style={{
+      padding: "8px 10px",
+      borderRadius: 8,
+      border: "1px solid rgba(231,198,154,0.14)",
+      background: "rgba(255,255,255,0.03)",
+      color: "var(--text)",
+      fontSize: 12,
+    }}
+  >
+    <option value="all">All Activity</option>
+    <option value="clicked">Clicked</option>
+    <option value="opened">Opened</option>
+    <option value="delivered">Delivered</option>
+    <option value="bounced">Bounced</option>
+    <option value="no activity">No Activity</option>
+  </select>
 
-              {pageInfoVisible && (
-                <div style={{ fontSize: 10, color: "var(--muted)" }}>
-                  Page {currentPage} of {totalPages}
-                </div>
-              )}
-            </div>
+  <input
+    value={searchText}
+    onChange={(event) => setSearchText(event.target.value)}
+    placeholder="Search email or phone"
+    style={{
+      minWidth: 200,
+      padding: "8px 10px",
+      borderRadius: 8,
+      border: "1px solid rgba(231,198,154,0.14)",
+      background: "rgba(255,255,255,0.03)",
+      color: "var(--text)",
+      fontSize: 12,
+    }}
+  />
+
+  {pageInfoVisible && (
+    <div style={{ fontSize: 10, color: "var(--muted)" }}>
+      Page {currentPage} of {totalPages}
+    </div>
+  )}
+</div>
           </div>
 
           {loading ? (
@@ -546,9 +551,11 @@ const currentlyRunning =
             <div style={{ fontSize: 12, color: "var(--red)", padding: "6px 0" }}>
               Brevo data unavailable
             </div>
-          ) : filteredContacts.length === 0 ? (
+                    ) : filteredContacts.length === 0 ? (
             <div style={{ fontSize: 12, color: "var(--muted)", padding: "6px 0" }}>
-              No contacts yet
+              {searchQuery || statusFilter !== "all" || activityFilter !== "all"
+                ? "No contacts match your filters."
+                : "No contacts yet"}
             </div>
           ) : (
             <div

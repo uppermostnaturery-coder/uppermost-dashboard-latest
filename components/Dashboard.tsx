@@ -87,13 +87,11 @@ import {
   SiSafari,
   SiInstagram,
   SiFacebook,
-  SiFirefoxbrowser,
   SiOpera,
   SiBrave,
   SiApple,
   SiAndroid,
 } from "react-icons/si";
-
 import { FiMoreHorizontal, FiGlobe } from "react-icons/fi";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Filler, Tooltip, Legend);
@@ -135,11 +133,16 @@ interface EventRow {
 }
 
 interface VisitorRow {
-  visitor_id: string; is_online: boolean;
+  visitor_id: string;
+  is_online?: boolean;
   current_session_id: string | null;
-  first_seen_at?: string | null; last_seen_at: string | null;
-  device_type?: string | null; browser?: string | null; os?: string | null;
-  city?: string | null; country?: string | null;
+  first_seen_at?: string | null;
+  last_seen_at: string | null;
+  device_type?: string | null;
+  browser?: string | null;
+  os?: string | null;
+  city?: string | null;
+  country?: string | null;
 }
 
 interface BarItem { label: string; count: number; }
@@ -200,6 +203,102 @@ function IconTextCell({
     </span>
   );
 }
+const COUNTRY_CODES = `AF AX AL DZ AS AD AO AI AQ AG AR AM AW AU AT AZ BS BH BD BB BY BE BZ BJ BM BT BO BA BW BR IO BN BG BF BI KH CM CA CV KY CF TD CL CN CX CC CO KM CG CD CK CR CI HR CU CW CY CZ DK DJ DM DO EC EG SV GQ ER EE SZ ET FK FO FJ FI FR GF PF TF GA GM GE DE GH GI GR GL GD GP GU GT GG GN GW GY HT HM HN HK HU IS IN ID IR IQ IE IM IL IT JM JP JE JO KZ KE KI KP KR KW KG LA LV LB LS LR LY LI LT LU MO MG MW MY MV ML MT MH MQ MR MU YT MX FM MD MC MN ME MS MA MZ MM NA NR NP NL NC NZ NI NE NG NU NF MK MP NO OM PK PW PS PA PG PY PE PH PN PL PT PR QA RE RO RU RW BL SH KN LC MF PM VC WS SM ST SA SN RS SC SL SG SX SK SI SB SO ZA GS SS ES LK SD SR SJ SE CH SY TW TJ TZ TH TL TG TK TO TT TN TR TM TC TV UG UA AE GB US UM UY UZ VU VA VE VN VG VI WF EH YE ZM ZW XK`
+  .split(" ");
+
+function countryCodeToFlag(code?: string | null) {
+  if (!code || code.length !== 2) return "";
+
+  return code
+    .toUpperCase()
+    .replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt(0)));
+}
+
+function normalizeCountryName(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[’'`.]/g, "")
+    .replace(/^the\s+/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+const COUNTRY_ALIASES: Record<string, string> = {
+  usa: "US",
+  us: "US",
+  america: "US",
+  "united states of america": "US",
+  uk: "GB",
+  england: "GB",
+  britain: "GB",
+  "great britain": "GB",
+  uae: "AE",
+  brazil: "BR",
+  brasil: "BR",
+  russia: "RU",
+  vietnam: "VN",
+  turkey: "TR",
+  turkiye: "TR",
+  "south korea": "KR",
+  "north korea": "KP",
+  "czech republic": "CZ",
+  czechia: "CZ",
+  "ivory coast": "CI",
+  "cote divoire": "CI",
+  palestine: "PS",
+  kosovo: "XK",
+};
+
+let countryNameCodeCache: Record<string, string> | null = null;
+
+function countryNameToCode(country?: string | null) {
+  if (!country) return null;
+
+  const normalized = normalizeCountryName(country);
+  const directCode = country.trim().toUpperCase();
+
+  if (COUNTRY_CODES.includes(directCode)) return directCode;
+
+  if (!countryNameCodeCache) {
+    const DisplayNamesCtor = (Intl as typeof Intl & {
+      DisplayNames?: new (
+        locales: string[],
+        options: { type: "region" }
+      ) => { of(code: string): string | undefined };
+    }).DisplayNames;
+
+    const displayNames = DisplayNamesCtor
+      ? new DisplayNamesCtor(["en"], { type: "region" })
+      : null;
+
+    countryNameCodeCache = { ...COUNTRY_ALIASES };
+
+    if (displayNames) {
+      COUNTRY_CODES.forEach((code) => {
+        const name = displayNames.of(code);
+        if (name) countryNameCodeCache![normalizeCountryName(name)] = code;
+      });
+    }
+  }
+
+  return countryNameCodeCache[normalized] ?? null;
+}
+
+function CountryCell({ country }: { country?: string | null }) {
+  const code = countryNameToCode(country);
+  const flag = countryCodeToFlag(code);
+
+  if (!country) return <>—</>;
+
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+      {flag ? <span style={{ fontSize: 24, lineHeight: 1, width: 28 }}>{flag}</span> : null}
+      <span>{country}</span>
+    </span>
+  );
+}
 
 function DeviceCell({ value, muted = false }: { value?: string | null; muted?: boolean }) {
   const s = (value || "").toLowerCase();
@@ -231,10 +330,11 @@ function BrowserCell({ value }: { value?: string | null }) {
   }
 
   if (s.includes("edge")) {
-return <IconTextCell icon={<FiGlobe size={20} color="#0AA0F6" />} label="Edge" />;  }
+    return <IconTextCell icon={<FiGlobe size={20} color="#0AA0F6" />} label="Edge" />;
+  }
 
   if (s.includes("firefox")) {
-    return <IconTextCell icon={<SiFirefoxbrowser size={20} color="#FF7139" />} label="Firefox" />;
+    return <IconTextCell icon={<FiGlobe size={20} color="#FF7139" />} label="Firefox" />;
   }
 
   if (s.includes("opera")) {
@@ -247,32 +347,36 @@ return <IconTextCell icon={<FiGlobe size={20} color="#0AA0F6" />} label="Edge" /
 
   return <IconTextCell icon={<CircleHelp size={17} color="#a89280" />} label={value || "—"} />;
 }
-
 function OSCell({ value }: { value?: string | null }) {
   const s = (value || "").toLowerCase();
 
-  if (s.includes("mac") || s.includes("ios")) {
-    return <IconTextCell icon={<SiApple size={20} color="#f4eadf" />} label="MacOS" />;
-  }
+ if (s.includes("mac") || s.includes("ios")) {
+  return <IconTextCell icon={<SiApple size={18} color="#d9c4ad" />} label={value || "Apple"} />;
+}
 
   if (s.includes("windows")) {
-return <IconTextCell icon={<Monitor size={17} color="#d9d9d9" />} label="Windows" />;  }
+    return <IconTextCell icon={<Monitor size={17} color="#d9c4ad" />} label="Windows" />;
+  }
+if (s.includes("android")) {
+  return <IconTextCell icon={<SiAndroid size={18} color="#3DDC84" />} label="Android" />;
+}
 
-  if (s.includes("android")) {
-    return <IconTextCell icon={<SiAndroid size={20} color="#9bd36a" />} label="Android" />;
+  if (s.includes("linux")) {
+    return <IconTextCell icon={<Monitor size={17} color="#d9c4ad" />} label="Linux" />;
   }
 
-  return <IconTextCell icon={<CircleHelp size={17} color="#d9c4ad" />} label={value || "Other"} />;
+  return <IconTextCell icon={<CircleHelp size={17} color="#a89280" />} label={value || "—"} />;
 }
-function prettyPath(path?: string | null): string {
-  if (!path || path === "/") return "Homepage";
-  const map: Record<string, string> = {
-    "/gir-cow-ghee": "Gir Cow Ghee",
-    "/murrah-buffalo-ghee": "Murrah Buffalo Ghee",
-  };
-  return map[path] || path;
-}
+function prettyPath(path: string | null | undefined) {
+  if (!path) return "Unknown page";
 
+  try {
+    const url = new URL(path, "https://uppermost.ai");
+    return url.pathname === "/" ? "Home" : url.pathname;
+  } catch {
+    return path === "/" ? "Home" : path;
+  }
+}
 function getEventLabel(e: EventRow): string {
   const meta = e.metadata || {};
   const from = meta.from_path;
@@ -503,46 +607,57 @@ function BrowserStats({ items }: { items: BarItem[] }) {
 }
 
 function BrowserAnalyticsTable({ items }: { items: BarItem[] }) {
-  if (!items || items.length === 0) return <div style={{ textAlign: "center", padding: 24, color: "var(--dim)", fontSize: 12 }}>No data yet</div>;
+  if (!items || items.length === 0) {
+    return (
+      <div style={{ textAlign: "center", padding: 24, color: "var(--dim)", fontSize: 12 }}>
+        No data yet
+      </div>
+    );
+  }
 
   const rows = [...items].sort((a, b) => {
-  const aLabel = (a.label || "").toLowerCase();
-  const bLabel = (b.label || "").toLowerCase();
+    const aLabel = (a.label || "").toLowerCase();
+    const bLabel = (b.label || "").toLowerCase();
 
-  const aIsOther = aLabel === "other" || aLabel === "unknown";
-  const bIsOther = bLabel === "other" || bLabel === "unknown";
+    const aIsOther = aLabel === "other" || aLabel === "unknown";
+    const bIsOther = bLabel === "other" || bLabel === "unknown";
 
-  if (aIsOther && !bIsOther) return 1;
-  if (!aIsOther && bIsOther) return -1;
+    if (aIsOther && !bIsOther) return 1;
+    if (!aIsOther && bIsOther) return -1;
 
-  return b.count - a.count;
-});
+    return b.count - a.count;
+  });
+
   const total = rows.reduce((s, r) => s + r.count, 0) || 1;
-  const max = Math.max(...rows.map(r => r.count)) || 1;
+  const max = Math.max(...rows.map((r) => r.count)) || 1;
 
   const formatCount = (n: number) => n.toLocaleString();
   const formatPct = (n: number) => ((n / total) * 100).toFixed(1) + "%";
 
   const iconFor = (label: string) => {
     const s = (label || "").toLowerCase();
+
     if (s.includes("chrome")) return <SiGooglechrome size={14} color="#4285F4" />;
     if (s.includes("safari")) return <SiSafari size={14} color="#0A84FF" />;
     if (s.includes("instagram")) return <SiInstagram size={14} color="#E4405F" />;
     if (s.includes("edge")) return <FiGlobe size={14} color="#0AA0F6" />;
-    if (s.includes("firefox")) return <SiFirefoxbrowser size={14} color="#FF7139" />;
+    if (s.includes("firefox")) return <FiGlobe size={14} color="#FF7139" />;
     if (s.includes("opera")) return <SiOpera size={14} color="#8B8B83" />;
     if (s.includes("brave")) return <SiBrave size={14} color="#8B8B83" />;
     if (s.includes("samsung")) return <FiGlobe size={14} color="#8B8B83" />;
+
     return <FiMoreHorizontal size={14} color="#8B8B83" />;
   };
 
   const barColorFor = (label: string) => {
     const s = (label || "").toLowerCase();
+
     if (s.includes("chrome")) return "#8FA66A";
     if (s.includes("safari")) return "#C8A25A";
     if (s.includes("instagram")) return "#7189AF";
     if (s.includes("edge")) return "#86A174";
     if (s.includes("firefox")) return "#77766D";
+
     return "#696961";
   };
 
@@ -551,7 +666,9 @@ function BrowserAnalyticsTable({ items }: { items: BarItem[] }) {
       const step = Math.pow(10, Math.max(2, Math.floor(Math.log10(v)) - 2));
       return Math.ceil(v / step) * step;
     }
+
     if (v >= 100) return Math.ceil(v / 10) * 10;
+
     return v;
   };
 
@@ -559,7 +676,7 @@ function BrowserAnalyticsTable({ items }: { items: BarItem[] }) {
   const ticks = [0, Math.round(maxRounded / 3), Math.round((2 * maxRounded) / 3), maxRounded];
 
   const fmtTick = (n: number) => {
-    if (n >= 1000) return (Math.round((n / 100) ) / 10) + "K";
+    if (n >= 1000) return Math.round(n / 100) / 10 + "K";
     return String(n);
   };
 
@@ -567,7 +684,7 @@ function BrowserAnalyticsTable({ items }: { items: BarItem[] }) {
     <div style={{ width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ display: "grid", gridTemplateColumns: "1.4fr 2fr 0.7fr 0.7fr", gap: 12, fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.08em", padding: "0 6px" }}>
         <span>Browser</span>
-        <span style={{ textAlign: "left" }}>Horizontal Graph</span>
+        <span>Horizontal Graph</span>
         <span style={{ textAlign: "right" }}>Sessions</span>
         <span style={{ textAlign: "right" }}>% of total</span>
       </div>
@@ -575,6 +692,7 @@ function BrowserAnalyticsTable({ items }: { items: BarItem[] }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {rows.map((r) => {
           const widthPct = Math.round((r.count / max) * 100);
+
           return (
             <div key={r.label} style={{ display: "grid", gridTemplateColumns: "1.4fr 2fr 0.7fr 0.7fr", gap: 12, alignItems: "center", padding: "6px", height: 30 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--text)", fontWeight: 600 }}>
@@ -586,15 +704,17 @@ function BrowserAnalyticsTable({ items }: { items: BarItem[] }) {
                 <div style={{ width: "100%", height: 9, background: "var(--bg3)", borderRadius: 6, overflow: "hidden" }}>
                   <div style={{ width: `${widthPct}%`, height: "100%", background: barColorFor(r.label), borderRadius: 4, transition: "width 0.4s ease" }} />
                 </div>
+
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "var(--muted)", padding: "0 2px" }}>
                   {ticks.map((t, i) => (
-                    <div key={i} style={{ textAlign: i === ticks.length - 1 ? "right" : "left", flex: 1 }}>{fmtTick(t)}</div>
+                    <div key={i} style={{ textAlign: i === ticks.length - 1 ? "right" : "left", flex: 1 }}>
+                      {fmtTick(t)}
+                    </div>
                   ))}
                 </div>
               </div>
 
               <div style={{ fontSize: 12, color: "var(--text)", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{formatCount(r.count)}</div>
-
               <div style={{ fontSize: 12, color: "var(--muted)", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{formatPct(r.count)}</div>
             </div>
           );
@@ -923,7 +1043,9 @@ function CompactBarStrip({ items }: { items: BarItem[] }) {
       x: {
         stacked: true,
         grid: { display: false },
-        ticks: { display: false },
+        ticks: {
+          display: false,
+        },
       },
       y: {
         stacked: true,
@@ -981,7 +1103,6 @@ function CompactBarStrip({ items }: { items: BarItem[] }) {
     </div>
   );
 }
-
 function MetaPlatformGroupedChart({ stats }: { stats: any }) {
   const chartData = {
     labels: ["Facebook", "Instagram", "Messenger", "Audience Network"],
@@ -1058,7 +1179,7 @@ function MetaPlatformGroupedChart({ stats }: { stats: any }) {
   );
 }
 function Panel({ title, badge, children, style }: { title: string; badge?: string; children: React.ReactNode; style?: React.CSSProperties }) {
-  return (
+  return (  
     <div style={{ width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: 16, ...style }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
         <span style={{ fontSize: 14, fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--muted)" }}>{title}</span>
@@ -3151,7 +3272,7 @@ const loadEventFeed = useCallback(async () => {
     const since = rangeStart(range);
     const { data } = await supabase
   .from("analytics_visitors")
-  .select("visitor_id, is_online, current_session_id, first_seen_at, last_seen_at, city, country")
+  .select("visitor_id, current_session_id, first_seen_at, last_seen_at, city, country")
   .gte("last_seen_at", since)
   .order("last_seen_at", { ascending: false })
   .limit(100);
@@ -5497,7 +5618,7 @@ const buyNowChartData = {
                   <td style={{ padding: "9px 12px", fontFamily: "monospace", fontSize: 11 }}>{shortId(v.visitor_id)}</td>
                   <td style={{ padding: "9px 12px" }}>{visitorType}</td>
                   <td style={{ padding: "9px 12px" }}>{v.city || "—"}</td>
-                  <td style={{ padding: "9px 12px" }}>{v.country || "—"}</td>
+                  <td style={{ padding: "9px 12px" }}><CountryCell country={v.country} /></td>
                   <td style={{ padding: "9px 12px" }}><DeviceCell value={v.device_type} /></td>
                   <td style={{ padding: "9px 12px" }}><BrowserCell value={v.browser} /></td>
                   <td style={{ padding: "9px 12px" }}><OSCell value={v.os} /></td>
@@ -5675,7 +5796,7 @@ const buyNowChartData = {
                   <td style={{ padding: "9px 12px", fontFamily: "monospace", fontSize: 11 }}>{shortId(v.visitor_id)}</td>
                   <td style={{ padding: "9px 12px" }}>{visitorType}</td>
                   <td style={{ padding: "9px 12px" }}>{v.city || "—"}</td>
-                  <td style={{ padding: "9px 12px" }}>{v.country || "—"}</td>
+                  <td style={{ padding: "9px 12px" }}><CountryCell country={v.country} /></td>             
                   <td style={{ padding: "9px 12px" }}><DeviceCell value={v.device_type} /></td>
                   <td style={{ padding: "9px 12px" }}><BrowserCell value={v.browser} /></td>
                   <td style={{ padding: "9px 12px" }}><OSCell value={v.os} /></td>
