@@ -83,7 +83,7 @@ const variants: CatalogVariant[] = [
     family: "GIR",
     sku: "GIR-500",
     size: "500 ml",
-    price: 380_000,
+    price: 375_000,
   }),
   variant({
     id: "gir-inactive",
@@ -234,8 +234,8 @@ describe("public commerce catalog", () => {
     const response = catalog();
     const allVariants = response.products.flatMap((product) => product.variants);
     expect(allVariants.find((item) => item.sku === "GIR-500")?.pricing).toEqual({
-      standard_price_paise: 380_000,
-      current_display_price_paise: 380_000,
+      standard_price_paise: 375_000,
+      current_display_price_paise: 375_000,
     });
     expect(allVariants.find((item) => item.sku === "MURRAH-500")?.pricing).toEqual({
       standard_price_paise: 300_000,
