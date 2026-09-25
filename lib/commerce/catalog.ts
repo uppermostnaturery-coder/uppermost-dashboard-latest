@@ -24,6 +24,53 @@ type VariantRow = {
     | Array<{ code: string; name: string; product_family: string }>;
 };
 
+type ReleaseInventoryRow = {
+  product_variant_id: string;
+  release_code: string;
+  release_capacity: number;
+  release_committed: number;
+  starts_at: string | null;
+  ends_at: string | null;
+};
+
+export function constrainInventoryQuantity(
+  physicalQuantity: number | null | undefined,
+  releaseRemaining: number | null | undefined
+): number | null {
+  const physical = physicalQuantity == null ? null : Math.max(0, physicalQuantity);
+  const release = releaseRemaining == null ? null : Math.max(0, releaseRemaining);
+  if (physical === null) return release;
+  if (release === null) return physical;
+  return Math.min(physical, release);
+}
+
+function currentReleaseRemaining(
+  releases: ReleaseInventoryRow[],
+  nowMs = Date.now()
+): Map<string, number> {
+  const sorted = [...releases]
+    .filter((release) => {
+      if (release.starts_at && new Date(release.starts_at).getTime() > nowMs) return false;
+      if (release.ends_at && new Date(release.ends_at).getTime() <= nowMs) return false;
+      return true;
+    })
+    .sort((left, right) => {
+      const leftStart = left.starts_at ? new Date(left.starts_at).getTime() : 0;
+      const rightStart = right.starts_at ? new Date(right.starts_at).getTime() : 0;
+      return rightStart - leftStart || left.release_code.localeCompare(right.release_code);
+    });
+  const remaining = new Map<string, number>();
+  for (const release of sorted) {
+    if (!remaining.has(release.product_variant_id)) {
+      remaining.set(
+        release.product_variant_id,
+        Math.max(0, release.release_capacity - release.release_committed)
+      );
+    }
+  }
+  return remaining;
+}
+
 function productFromRelation(row: VariantRow) {
   return Array.isArray(row.products) ? row.products[0] : row.products;
 }
@@ -121,9 +168,10 @@ export async function loadCatalogVariants(skus: string[]): Promise<CatalogVarian
     throw new CommerceError("UNKNOWN_SKU", `Unknown SKU: ${missing.join(", ")}`, 400);
   }
 
+  let inventoryAdjustedVariants = variants;
   if (getCommerceEnv().inventorySource === "SHOPIFY") {
     const inventory = await getShopifyInventory(variants);
-    return variants.map((variant) => ({
+    inventoryAdjustedVariants = variants.map((variant) => ({
       ...variant,
       inventory_quantity: variant.external_shopify_variant_id
         ? inventory.get(variant.external_shopify_variant_id) ?? null
@@ -131,7 +179,27 @@ export async function loadCatalogVariants(skus: string[]): Promise<CatalogVarian
     }));
   }
 
-  return variants;
+  const releaseResult = await supabaseAdmin
+    .from("product_variant_releases")
+    .select(
+      "product_variant_id, release_code, release_capacity, release_committed, starts_at, ends_at"
+    )
+    .in("product_variant_id", inventoryAdjustedVariants.map((variant) => variant.id))
+    .eq("status", "ACTIVE");
+  if (releaseResult.error) {
+    throw new Error(`Release inventory lookup failed: ${releaseResult.error.message}`);
+  }
+  const releaseByVariant = currentReleaseRemaining(
+    (releaseResult.data ?? []) as ReleaseInventoryRow[]
+  );
+
+  return inventoryAdjustedVariants.map((variant) => ({
+    ...variant,
+    inventory_quantity: constrainInventoryQuantity(
+      variant.inventory_quantity,
+      releaseByVariant.get(variant.id)
+    ),
+  }));
 }
 
 export function assertInventory(
@@ -157,4 +225,3 @@ export function assertInventory(
     }
   }
 }
-

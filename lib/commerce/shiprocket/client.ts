@@ -105,46 +105,52 @@ export async function getShiprocketServiceability(input: {
   };
 }
 
-export async function createShiprocketOrder(input: {
+type ShiprocketOrderInput = {
   orderNumber: string;
   placedAt: string;
   customer: { name: string; email: string; phone: string };
   address: Record<string, unknown>;
   items: Array<{ sku: string; name: string; units: number; selling_price: number }>;
-  subtotalRupees: number;
+  orderTotalRupees: number;
   dimensions: { weightKg: number; lengthCm: number; breadthCm: number; heightCm: number };
-}) {
+};
+
+export function buildShiprocketOrderPayload(input: ShiprocketOrderInput) {
   const env = getShiprocketEnv();
   const address = input.address;
+  return {
+    order_id: input.orderNumber,
+    order_date: input.placedAt.slice(0, 19).replace("T", " "),
+    pickup_location: env.pickupLocation,
+    billing_customer_name: input.customer.name,
+    billing_last_name: "",
+    billing_address: address.line1,
+    billing_address_2: address.line2 ?? "",
+    billing_city: address.city,
+    billing_pincode: address.postal_code,
+    billing_state: address.state,
+    billing_country: "India",
+    billing_email: input.customer.email,
+    billing_phone: input.customer.phone.replace(/\D/g, "").slice(-10),
+    shipping_is_billing: true,
+    order_items: input.items,
+    payment_method: "Prepaid",
+    sub_total: input.orderTotalRupees,
+    length: input.dimensions.lengthCm,
+    breadth: input.dimensions.breadthCm,
+    height: input.dimensions.heightCm,
+    weight: input.dimensions.weightKg,
+  };
+}
+
+export async function createShiprocketOrder(input: ShiprocketOrderInput) {
   return shiprocketRequest<{
     order_id?: number;
     shipment_id?: number;
     status?: string;
   }>("/orders/create/adhoc", {
     method: "POST",
-    body: JSON.stringify({
-      order_id: input.orderNumber,
-      order_date: input.placedAt.slice(0, 19).replace("T", " "),
-      pickup_location: env.pickupLocation,
-      billing_customer_name: input.customer.name,
-      billing_last_name: "",
-      billing_address: address.line1,
-      billing_address_2: address.line2 ?? "",
-      billing_city: address.city,
-      billing_pincode: address.postal_code,
-      billing_state: address.state,
-      billing_country: "India",
-      billing_email: input.customer.email,
-      billing_phone: input.customer.phone.replace(/\D/g, "").slice(-10),
-      shipping_is_billing: true,
-      order_items: input.items,
-      payment_method: "Prepaid",
-      sub_total: input.subtotalRupees,
-      length: input.dimensions.lengthCm,
-      breadth: input.dimensions.breadthCm,
-      height: input.dimensions.heightCm,
-      weight: input.dimensions.weightKg,
-    }),
+    body: JSON.stringify(buildShiprocketOrderPayload(input)),
   });
 }
 
@@ -153,4 +159,3 @@ export async function fetchShiprocketTracking(awb: string) {
     method: "GET",
   });
 }
-

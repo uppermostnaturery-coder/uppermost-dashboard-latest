@@ -59,7 +59,7 @@ export async function createCustomerMessage(args: {
   metadata?: Record<string, unknown>;
 }): Promise<CustomerMessage> {
   const message = await resolveMessage(args.key);
-  const { error } = await supabaseAdmin.from("customer_messages").insert({
+  const inserted = await supabaseAdmin.from("customer_messages").insert({
     customer_id: args.customerId,
     message_key: args.key,
     order_id: args.orderId ?? null,
@@ -72,8 +72,45 @@ export async function createCustomerMessage(args: {
     cta_label: message.cta_label ?? null,
     cta_url: message.cta_url ?? null,
     metadata: args.metadata ?? {},
-  });
-  if (error) console.error("Customer message persistence failed:", error);
+  }).select("id").single();
+
+  let messageId = inserted.data?.id ?? null;
+  if (inserted.error?.code === "23505") {
+    let existing = supabaseAdmin
+      .from("customer_messages")
+      .select("id")
+      .eq("message_key", args.key);
+    existing = args.orderId
+      ? existing.eq("order_id", args.orderId)
+      : existing.is("order_id", null);
+    existing = args.paymentAttemptId
+      ? existing.eq("payment_attempt_id", args.paymentAttemptId)
+      : existing.is("payment_attempt_id", null);
+    existing = args.shipmentId
+      ? existing.eq("shipment_id", args.shipmentId)
+      : existing.is("shipment_id", null);
+    const result = await existing.order("created_at", { ascending: true }).limit(1).maybeSingle();
+    messageId = result.data?.id ?? null;
+    if (result.error) console.error("Customer message lookup failed:", result.error);
+  } else if (inserted.error) {
+    console.error("Customer message persistence failed:", inserted.error);
+  }
+
+  if (messageId) {
+    const now = new Date().toISOString();
+    const delivery = await supabaseAdmin.from("message_deliveries").upsert({
+      customer_message_id: messageId,
+      channel: "IN_APP",
+      provider: "UPPERMOST",
+      status: "DELIVERED",
+      attempt_number: 1,
+      sent_at: now,
+      delivered_at: now,
+    }, {
+      onConflict: "customer_message_id,channel,attempt_number",
+      ignoreDuplicates: true,
+    });
+    if (delivery.error) console.error("In-app message delivery persistence failed:", delivery.error);
+  }
   return message;
 }
-

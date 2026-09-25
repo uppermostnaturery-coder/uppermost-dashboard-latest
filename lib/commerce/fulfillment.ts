@@ -10,12 +10,31 @@ type OrderForShipment = {
   total_paise: number;
   address_snapshot: Record<string, unknown>;
   pricing_snapshot: {
+    shipping?: {
+      estimated_delivery_from?: string | null;
+      estimated_delivery_to?: string | null;
+    };
     initial?: { items?: NormalizedCartLine[] };
     quote?: { items?: NormalizedCartLine[] };
     items?: NormalizedCartLine[];
   };
   created_at: string;
 };
+
+function dateOnly(value: unknown): string | null {
+  if (typeof value !== "string" || !value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
+}
+
+export function shipmentDatesFromPricingSnapshot(
+  pricingSnapshot: OrderForShipment["pricing_snapshot"]
+) {
+  return {
+    expectedFrom: dateOnly(pricingSnapshot.shipping?.estimated_delivery_from),
+    expectedTo: dateOnly(pricingSnapshot.shipping?.estimated_delivery_to),
+  };
+}
 
 export async function ensureShipmentForOrder(orderId: string): Promise<void> {
   const existing = await supabaseAdmin
@@ -49,9 +68,15 @@ export async function ensureShipmentForOrder(orderId: string): Promise<void> {
     order.pricing_snapshot.items ??
     [];
   if (items.length === 0) throw new Error("Order has no fulfilment items.");
+  const shipmentDates = shipmentDatesFromPricingSnapshot(order.pricing_snapshot);
   const placeholder = await supabaseAdmin
     .from("shipments")
-    .insert({ order_id: orderId, status: "CREATING" })
+    .insert({
+      order_id: orderId,
+      status: "CREATING",
+      expected_from: shipmentDates.expectedFrom,
+      expected_to: shipmentDates.expectedTo,
+    })
     .select("id")
     .single();
   if (placeholder.error || !placeholder.data) {
@@ -76,7 +101,7 @@ export async function ensureShipmentForOrder(orderId: string): Promise<void> {
         units: item.qty,
         selling_price: item.unit_price_paise / 100,
       })),
-      subtotalRupees: order.subtotal_paise / 100,
+      orderTotalRupees: order.total_paise / 100,
       dimensions: packed,
     });
     await supabaseAdmin
