@@ -1,8 +1,8 @@
 # Uppermost® Commerce V1 — Architecture & Implementation Blueprint
 
 **Document status:** FROZEN BASELINE  
-**Version:** 1.1
-**Date:** 25 September 2026
+**Version:** 1.2
+**Date:** 2 October 2026
 **Audience:** CXO / Product / Engineering / Framer / Operations / Growth  
 **Canonical repository path:** `docs/UPPERMOST_COMMERCE_ARCHITECTURE.md`
 
@@ -221,10 +221,21 @@ Release inventory is stored independently from physical/on-hand inventory. A rel
 | `POST /api/payments/verify` | server-side payment verification |
 | `GET /api/checkout/status?session_id=` | pending / late payment reconciliation |
 | `POST /api/webhooks/razorpay` | signed payment/mandate callbacks |
-| `POST /api/webhooks/shiprocket` | shipment/tracking updates where supported |
+| `POST /api/webhooks/carrier-events` | Shiprocket shipment/tracking updates; provider-safe public alias authenticated with `x-api-key` |
 | `GET /api/experience?token=` | safe customer-facing order/tracking/subscription data |
 | `GET/POST /api/customer/addresses` | saved Uppermost addresses |
 | internal protected renewal runner | due subscription cycles |
+
+## Shiprocket Webhook Endpoint
+
+Shiprocket must be configured with the provider-safe webhook URL
+`https://uppermost-dashboard-latest-orcin.vercel.app/api/webhooks/carrier-events`
+and auth-token type `x-api-key`. The token value is the server-only
+`SHIPROCKET_WEBHOOK_SECRET`; it must never be placed in the URL, Framer code,
+documentation, or logs. The implementation retains
+`POST /api/webhooks/shiprocket` only as a backward-compatible internal alias;
+it is not the URL configured in Shiprocket because provider validation blocks
+URLs containing the provider name.
 
 ## Unified Checkout Prepare
 

@@ -132,7 +132,8 @@ Requires a Supabase bearer token linked to `customers.auth_user_id`. `GET` lists
 ## Provider and internal endpoints
 
 - `POST /api/webhooks/razorpay`: validates `X-Razorpay-Signature` over the raw body; deduplicates event ID/body hash; handles payment authorised/captured/failed and token/mandate status.
-- `POST /api/webhooks/shiprocket`: validates `X-Shiprocket-Webhook-Secret`, `X-Api-Key`, or bearer secret; deduplicates tracking updates.
+- `POST /api/webhooks/carrier-events`: the Shiprocket-safe public webhook path. Configure Shiprocket with `https://uppermost-dashboard-latest-orcin.vercel.app/api/webhooks/carrier-events`, auth-token type `x-api-key`, and the server-only `SHIPROCKET_WEBHOOK_SECRET` as the token value. The handler rejects missing or invalid tokens and deduplicates tracking updates. `x-api-key` is authoritative when supplied. The legacy `X-Shiprocket-Webhook-Secret` header and bearer-secret form remain accepted for backward compatibility.
+- `POST /api/webhooks/shiprocket`: backward-compatible route to the same handler. Do not configure this path in Shiprocket because its webhook UI blocks URLs containing the provider name.
 - `POST /api/internal/renewals/run`: requires `Authorization: Bearer <COMMERCE_CRON_SECRET>`. It creates 24-hour pre-debit messages, atomically claims due cycles with `SKIP LOCKED`, prices subscription lines only, enforces mandate cap, creates one provider order/attempt, calls recurring payment, and advances only after capture.
 
 ## States, messages, and errors
