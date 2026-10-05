@@ -1,5 +1,7 @@
 # Uppermost repository rules
 
+AI coding-tool onboarding and skill routing are documented in `docs/AI_ASSISTANT_SKILLS.md`. Read the relevant installed skill's current instructions when its trigger applies; this file's commerce invariants take precedence.
+
 ## Frozen commerce architecture
 
 - `docs/UPPERMOST_COMMERCE_ARCHITECTURE.md` is the frozen source of truth for commerce architecture.

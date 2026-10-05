@@ -2,6 +2,8 @@
 
 Use this file to choose the correct source before changing or integrating commerce behavior.
 
+For AI coding-tool setup and workflow selection after a fresh checkout, see [`AI_ASSISTANT_SKILLS.md`](AI_ASSISTANT_SKILLS.md).
+
 ## Authority order
 
 1. `UPPERMOST_COMMERCE_ARCHITECTURE.md` — frozen architecture and business/state-machine source of truth. Update this first before any architecture-level behavior change.

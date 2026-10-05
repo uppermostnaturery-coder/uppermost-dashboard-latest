@@ -2,6 +2,8 @@
 
 Live analytics dashboard for uppermost.store, built with Next.js 14 (App Router) + Supabase Realtime + Chart.js.
 
+New contributors using Codex or Claude Code: start with [AI coding-tool setup and workflow guide](docs/AI_ASSISTANT_SKILLS.md), then read [repository rules](AGENTS.md) before commerce work.
+
 ## Setup
 
 1. Install dependencies:
