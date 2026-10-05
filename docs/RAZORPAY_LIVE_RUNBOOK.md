@@ -302,6 +302,12 @@ Set `WEBHOOK_EVENT='token.confirmed'` to test the second exact supported payload
 
 No manual reconciliation route exists. Ambiguous renewals remain `RECONCILIATION_PENDING` for webhook/provider-fetch recovery and operator investigation; do not trigger another debit manually without proving the first did not succeed.
 
+### Safe Razorpay HTTP failure diagnostics
+
+Every non-successful response from the centralized Razorpay client writes one structured server-only log. It contains only `provider`, logical `operation`, HTTP `method`, Razorpay API `path`, response `status`, the allowlisted `provider_error` fields (`code`, `description`, `source`, `step`, `reason`, `field`), and explicitly selected safe identifiers/amount/currency. It never logs request headers, Authorization, API secrets, customer contact details, request bodies, or the complete provider response.
+
+Renewal-cycle `last_error` stores the same allowlisted provider fields with `stage`, `provider: RAZORPAY`, and `http_status`. Malformed or non-JSON bodies become a generic description and null provider fields; raw HTML/text is neither logged nor stored. This diagnostic behavior does not change retry or state classification: provider-order HTTP 4xx remains fail-closed as `REAUTH_REQUIRED` until the captured error identifies the separate business fix.
+
 ## Single-query checkout audit
 
 Use this read-only query in Supabase SQL Editor to inspect a checkout end to end. It derives customer and subscription scope from the checkout/order rather than relying on a separately pasted customer ID, which avoids accidentally mixing two transactions. Replace only the two IDs in `target`.

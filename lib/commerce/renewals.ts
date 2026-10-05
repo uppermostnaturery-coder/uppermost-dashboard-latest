@@ -10,6 +10,7 @@ import {
   createRazorpayOrder,
   createRazorpayRecurringPayment,
   fetchRazorpayOrderPayments,
+  razorpayCycleLastError,
   RazorpayApiError,
 } from "./razorpay/client";
 import { selectDueCycleItems } from "./subscriptions/schedule";
@@ -269,7 +270,7 @@ export async function processNotificationDueCycle(cycle: ClaimedCycle) {
       : "RECONCILIATION_PENDING";
     await supabaseAdmin.from("subscription_cycles").update({
       status: state,
-      last_error: { stage: "PROVIDER_ORDER", message: error instanceof Error ? error.message : "Unknown provider result" },
+      last_error: razorpayCycleLastError("PROVIDER_ORDER", error),
     }).eq("id", cycle.id);
     if (state === "REAUTH_REQUIRED") {
       await createCustomerMessage({
@@ -351,7 +352,7 @@ export async function processRenewalCycle(cycle: ClaimedCycle) {
     } catch (error) {
       await supabaseAdmin.from("subscription_cycles").update({
         status: "RECONCILIATION_PENDING",
-        last_error: { stage: "PRE_RETRY_RECONCILIATION", message: error instanceof Error ? error.message : "Unknown provider result" },
+        last_error: razorpayCycleLastError("PRE_RETRY_RECONCILIATION", error),
       }).eq("id", cycle.id);
       return { cycle_id: cycle.id, state: "RECONCILIATION_PENDING" };
     }
@@ -374,7 +375,7 @@ export async function processRenewalCycle(cycle: ClaimedCycle) {
     if (!(error instanceof RazorpayApiError) || error.status >= 500) {
       await supabaseAdmin.from("subscription_cycles").update({
         status: "RECONCILIATION_PENDING",
-        last_error: { stage: "RECURRING_DEBIT", message: error instanceof Error ? error.message : "Unknown provider result" },
+        last_error: razorpayCycleLastError("RECURRING_DEBIT", error),
       }).eq("id", cycle.id);
       return { cycle_id: cycle.id, state: "RECONCILIATION_PENDING" };
     }
@@ -385,7 +386,7 @@ export async function processRenewalCycle(cycle: ClaimedCycle) {
       status: retryable ? "FAILED" : "REAUTH_REQUIRED",
       retry_count: retryCount,
       next_retry_at: retryable ? new Date(Date.now() + retryDelayMs(retryCount)).toISOString() : null,
-      last_error: { normalized_state: normalized, stage: "RECURRING_DEBIT" },
+      last_error: { ...razorpayCycleLastError("RECURRING_DEBIT", error), normalized_state: normalized },
     }).eq("id", cycle.id);
     await createCustomerMessage({
       customerId: context.subscription.customer_id,
