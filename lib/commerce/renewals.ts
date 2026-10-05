@@ -15,6 +15,13 @@ import {
 } from "./razorpay/client";
 import { selectDueCycleItems } from "./subscriptions/schedule";
 import type { CartLineInput } from "./types";
+import {
+  establishRenewalOrder,
+  establishRenewalPaymentAttempt,
+  canCreateRenewalProviderOrder,
+  resolveRenewalPricing,
+  type ExistingRenewalOrder,
+} from "./renewal-order";
 
 export type ClaimedCycle = {
   id: string;
@@ -128,7 +135,7 @@ async function priceCycle(cycle: ClaimedCycle, context: NonNullable<Awaited<Retu
       quote,
       exact_cycle_items: quote.items,
       promotion_version: promotionVersion(promotions),
-      stage: "RENEWAL",
+      stage: "RENEWAL" as const,
       price_locked_at: now,
     },
     now,
@@ -155,96 +162,62 @@ export async function processNotificationDueCycle(cycle: ClaimedCycle) {
   const context = await requireRenewalContext(cycle);
   if (!context) return { cycle_id: cycle.id, state: "CANCELLED" };
   if (!(await requireActiveMandate(context, cycle.id))) return { cycle_id: cycle.id, state: "REAUTH_REQUIRED" };
-  const pricing = await priceCycle(cycle, context);
+
+  const [cycleResult, orderResult] = await Promise.all([
+    supabaseAdmin.from("subscription_cycles")
+      .select("order_id, provider_order_id, pricing_snapshot, item_snapshot, amount_paise, price_locked_at, last_error")
+      .eq("id", cycle.id).single(),
+    supabaseAdmin.from("orders")
+      .select("id, order_number, customer_id, subscription_id, subscription_cycle_id, order_kind, currency, subtotal_paise, discount_paise, shipping_paise, tax_paise, total_paise, address_snapshot, pricing_snapshot")
+      .eq("subscription_cycle_id", cycle.id).maybeSingle(),
+  ]);
+  if (cycleResult.error || !cycleResult.data) {
+    throw new Error(`Renewal cycle lookup failed: ${cycleResult.error?.message ?? "not found"}`);
+  }
+  if (orderResult.error) throw new Error(`Renewal order recovery failed: ${orderResult.error.message}`);
+
+  const identity = {
+    cycleId: cycle.id,
+    subscriptionId: context.subscription.id,
+    customerId: context.subscription.customer_id,
+    addressSnapshot: context.address,
+  };
+  const pricing = await resolveRenewalPricing(
+    orderResult.data as ExistingRenewalOrder | null,
+    identity,
+    () => priceCycle(cycle, context)
+  );
   if (isAboveMandateCap(pricing.quote.total_paise, context.mandate.max_amount_paise)) {
     await moveAboveCapToReauth(cycle, context, pricing);
     return { cycle_id: cycle.id, state: "REAUTH_REQUIRED" };
   }
 
-  const existingCycle = await supabaseAdmin.from("subscription_cycles")
-    .select("order_id, provider_order_id").eq("id", cycle.id).single();
-  if (existingCycle.data?.order_id && existingCycle.data.provider_order_id) {
-    const existingAttempt = await supabaseAdmin.from("payment_attempts").select("id")
-      .eq("subscription_cycle_id", cycle.id).maybeSingle();
-    if (existingAttempt.error || !existingAttempt.data) {
-      await supabaseAdmin.from("subscription_cycles").update({ status: "RECONCILIATION_PENDING" }).eq("id", cycle.id);
-      return { cycle_id: cycle.id, state: "RECONCILIATION_PENDING" };
-    }
-    await supabaseAdmin.from("subscription_cycles").update({ status: "NOTIFIED" }).eq("id", cycle.id);
+  const order = await establishRenewalOrder({ identity, pricing });
+
+  if (cycleResult.data.provider_order_id) {
+    const attempt = await establishRenewalPaymentAttempt({
+      cycleId: cycle.id,
+      orderId: order.id,
+      providerOrderId: cycleResult.data.provider_order_id,
+      amountPaise: pricing.quote.total_paise,
+      notifiedAt: new Date().toISOString(),
+      scheduledChargeAt: cycle.due_at,
+    });
     await createCustomerMessage({
       customerId: context.subscription.customer_id,
       key: "RENEWAL_UPCOMING",
       subscriptionId: context.subscription.id,
-      orderId: existingCycle.data.order_id,
-      paymentAttemptId: existingAttempt.data.id,
+      orderId: order.id,
+      paymentAttemptId: attempt.id,
       metadata: { cycle_id: cycle.id, scheduled_charge_at: cycle.due_at },
     });
     return { cycle_id: cycle.id, state: "NOTIFIED", duplicate: true };
   }
-  if (existingCycle.data?.order_id) {
-    // A provider response may have been lost after the local intent was
-    // persisted. Do not create a second provider order blindly.
+  if (!canCreateRenewalProviderOrder(order.created, cycleResult.data.last_error)) {
     await supabaseAdmin.from("subscription_cycles").update({
       status: "RECONCILIATION_PENDING",
-      last_error: { stage: "PROVIDER_ORDER", message: "Local order exists without a durable provider order ID." },
     }).eq("id", cycle.id);
     return { cycle_id: cycle.id, state: "RECONCILIATION_PENDING" };
-  }
-
-  const orderResult = await supabaseAdmin.from("orders").insert({
-    customer_id: context.subscription.customer_id,
-    subscription_id: context.subscription.id,
-    subscription_cycle_id: cycle.id,
-    order_kind: "RENEWAL",
-    status: "PAYMENT_PENDING",
-    subtotal_paise: pricing.quote.subtotal_paise,
-    discount_paise: pricing.quote.discount_paise,
-    shipping_paise: pricing.quote.shipping_paise,
-    tax_paise: pricing.quote.tax_paise,
-    total_paise: pricing.quote.total_paise,
-    address_snapshot: context.address,
-    pricing_snapshot: pricing.snapshot,
-  }).select("id, order_number").single();
-  if (orderResult.error || !orderResult.data) throw new Error(`Renewal order creation failed: ${orderResult.error?.message}`);
-  const order = orderResult.data;
-  const itemInsert = await supabaseAdmin.from("order_items").insert(pricing.quote.items.map((item) => ({
-    order_id: order.id,
-    product_id: item.product_id,
-    product_variant_id: item.product_variant_id,
-    line_id: item.line_id,
-    sku: item.sku,
-    product_name: item.product_name,
-    variant_name: item.variant_name,
-    quantity: item.qty,
-    purchase_mode: "SUBSCRIPTION",
-    interval_days: item.interval_days,
-    unit_price_paise: item.unit_price_paise,
-    line_subtotal_paise: item.line_subtotal_paise,
-    line_total_paise: item.line_total_paise,
-    snapshot: item,
-  })));
-  if (itemInsert.error) throw new Error(`Renewal order items failed: ${itemInsert.error.message}`);
-  if (pricing.quote.adjustments.length) {
-    const result = await supabaseAdmin.from("order_adjustments").insert(pricing.quote.adjustments.map((adjustment) => ({
-      order_id: order.id,
-      promotion_id: adjustment.promotion_id,
-      label: adjustment.label,
-      adjustment_type: adjustment.type,
-      scope: adjustment.scope,
-      amount_paise: adjustment.amount_paise,
-      metadata: { code: adjustment.code, applies_to_line_ids: adjustment.applies_to_line_ids },
-    })));
-    if (result.error) throw new Error(`Renewal adjustments failed: ${result.error.message}`);
-  }
-  if (pricing.quote.benefits.length) {
-    const result = await supabaseAdmin.from("order_benefits").insert(pricing.quote.benefits.map((benefit) => ({
-      order_id: order.id,
-      promotion_id: benefit.promotion_id,
-      benefit_type: benefit.benefit_type,
-      label: benefit.label,
-      metadata: benefit.metadata,
-    })));
-    if (result.error) throw new Error(`Renewal benefits failed: ${result.error.message}`);
   }
 
   let remoteOrder;
@@ -284,37 +257,21 @@ export async function processNotificationDueCycle(cycle: ClaimedCycle) {
     return { cycle_id: cycle.id, state };
   }
 
-  const attemptResult = await supabaseAdmin.from("payment_attempts").insert({
-    subscription_cycle_id: cycle.id,
-    order_id: order.id,
-    kind: "RECURRING_DEBIT",
-    amount_paise: pricing.quote.total_paise,
-    provider_order_id: remoteOrder.id,
-    status: "CREATED",
-    normalized_state: "AUTHORIZING",
-  }).select("*").single();
-  if (attemptResult.error || !attemptResult.data) throw new Error(`Renewal payment attempt failed: ${attemptResult.error?.message}`);
-
   const notifiedAt = new Date().toISOString();
-  const cycleUpdate = await supabaseAdmin.from("subscription_cycles").update({
-    status: "NOTIFIED",
-    order_id: order.id,
-    pricing_snapshot: pricing.snapshot,
-    item_snapshot: pricing.quote.items,
-    amount_paise: pricing.quote.total_paise,
-    price_locked_at: pricing.now,
-    provider_order_id: remoteOrder.id,
-    provider_notification_id: remoteOrder.id,
-    pre_debit_notified_at: notifiedAt,
-    scheduled_charge_at: cycle.due_at,
-  }).eq("id", cycle.id);
-  if (cycleUpdate.error) throw new Error(`Renewal notification persistence failed: ${cycleUpdate.error.message}`);
+  const attempt = await establishRenewalPaymentAttempt({
+    cycleId: cycle.id,
+    orderId: order.id,
+    providerOrderId: remoteOrder.id,
+    amountPaise: pricing.quote.total_paise,
+    notifiedAt,
+    scheduledChargeAt: cycle.due_at,
+  });
   await createCustomerMessage({
     customerId: context.subscription.customer_id,
     key: "RENEWAL_UPCOMING",
     subscriptionId: context.subscription.id,
     orderId: order.id,
-    paymentAttemptId: attemptResult.data.id,
+    paymentAttemptId: attempt.id,
     metadata: { cycle_id: cycle.id, scheduled_charge_at: cycle.due_at },
   });
   return { cycle_id: cycle.id, state: "NOTIFIED" };

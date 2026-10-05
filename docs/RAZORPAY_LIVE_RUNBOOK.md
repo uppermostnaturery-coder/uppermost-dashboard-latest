@@ -308,6 +308,14 @@ Every non-successful response from the centralized Razorpay client writes one st
 
 Renewal-cycle `last_error` stores the same allowlisted provider fields with `stage`, `provider: RAZORPAY`, and `http_status`. Malformed or non-JSON bodies become a generic description and null provider fields; raw HTML/text is neither logged nor stored. This diagnostic behavior does not change retry or state classification: provider-order HTTP 4xx remains fail-closed as `REAUTH_REQUIRED` until the captured error identifies the separate business fix.
 
+### Renewal order recovery invariant
+
+The renewal notification worker discovers the local order by the unique `orders.subscription_cycle_id`, not only by `subscription_cycles.order_id`. Order creation/recovery, immutable snapshot validation, child snapshot creation for a new order, and the cycle link are one short Postgres transaction. Therefore a provider-order failure retains one reusable local order and a durable `cycle.order_id`; a retry does not reprice or insert another order. If an older deployment already left a valid order with a null cycle link, the next deliberately claimed notification retry recovers that exact order and repairs the link without deleting or rewriting it.
+
+Provider success uses a second atomic create-or-recover operation for the unique cycle payment attempt and provider-order link. A repeated worker result with the same order/provider order/amount/currency is a no-op; any material mismatch fails closed. Concurrent cron invocations remain protected by `FOR UPDATE SKIP LOCKED`, cycle row locks, and the unique order/payment-attempt indexes. Do not manually issue a second provider order while a provider result is ambiguous.
+
+Before deploying this recovery path, apply `20261005113000_recover_renewal_orders_by_cycle.sql`. The migration adds service-role-only database functions; it does not delete, rewrite, or clean existing renewal orders.
+
 ## Single-query checkout audit
 
 Use this read-only query in Supabase SQL Editor to inspect a checkout end to end. It derives customer and subscription scope from the checkout/order rather than relying on a separately pasted customer ID, which avoids accidentally mixing two transactions. Replace only the two IDs in `target`.

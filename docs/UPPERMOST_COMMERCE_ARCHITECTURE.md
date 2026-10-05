@@ -453,6 +453,7 @@ All three paths converge to the same database state. A standalone `token.confirm
 | browser-return provider fetch | `app/api/payments/verify/route.ts`, `lib/commerce/razorpay/client.ts` | typecheck/build plus embedded reconciliation service tests |
 | durable webhook/mandate/cycle database guards | `supabase/migrations/20261005090000_harden_razorpay_recurring_architecture.sql` | migration review plus production SQL audit |
 | renewal claim, cap, timing, retry policy | `lib/commerce/renewals.ts`, `lib/commerce/subscriptions/schedule.ts`, cron routes | `tests/commerce/renewal-hardening.test.ts` |
+| renewal order recovery/linking and payment-attempt idempotency | `lib/commerce/renewal-order.ts`, `supabase/migrations/20261005113000_recover_renewal_orders_by_cycle.sql` | `tests/commerce/renewal-order-recovery.test.ts` |
 
 Automated tests prove local routing, validation, state convergence and duplicate resistance using controlled provider/database seams. They do not prove Razorpay delivery, Vercel environment configuration, Supabase production migration state, or Shiprocket behavior. Those remain mandatory Test/Live-mode runbook checks. A future AI or engineer must not convert a passing mocked test into a claim that a provider callback was delivered in production.
 
@@ -462,12 +463,18 @@ Automated tests prove local routing, validation, state convergence and duplicate
 flowchart TD
   N[Notification due] --> NL[Atomically claim notification work]
   NL --> C[Select exact active due items]
-  C --> P[Reprice stage=RENEWAL]
+  C --> E{Order already exists for cycle?}
+  E -->|No| P[Reprice stage=RENEWAL]
+  E -->|Yes| V[Validate and reuse immutable order snapshot]
   P --> M{{Total <= mandate max?}}
+  V --> M
   M -->|No| R[REAUTH_REQUIRED + customer message]
-  M -->|Yes| O[Lock price/item snapshot + one local order]
+  M -->|Yes| O[Atomic create-or-recover local order,<br/>lock snapshot, link cycle.order_id]
   O --> RO[Create one Razorpay Order with notification token/payment_after]
-  RO --> W[NOTIFIED until scheduled_charge_at]
+  RO -->|Definite provider rejection| RR[Keep order + cycle link;<br/>retry same local intent]
+  RR --> RO
+  RO -->|Success| PA[Atomic create-or-recover payment attempt<br/>and persist provider_order_id]
+  PA --> W[NOTIFIED until scheduled_charge_at]
   W --> DL[Atomically claim debit work]
   DL --> B[POST /payments/create/recurring with recurring=true]
   B --> F{Final payment state}
@@ -480,11 +487,13 @@ flowchart TD
 
 `DUE → NOTIFICATION_PROCESSING → NOTIFIED → PROCESSING → PAYMENT_PENDING/PAID`. Unsafe or incomplete provider results become `RECONCILIATION_PENDING`; bounded, provably unsuccessful retries use `FAILED`; over-cap or unusable mandate becomes `REAUTH_REQUIRED`; inactive subscriptions become `CANCELLED`. Postgres claim functions use `FOR UPDATE SKIP LOCKED`.
 
-The price lock occurs during notification processing, before the Razorpay Order is created. The cycle stores the exact due-item snapshot, full authoritative pricing snapshot, amount, and `price_locked_at`. The debit uses that locked amount; it is never silently repriced between customer notification and charge.
+The price lock occurs during the first notification processing attempt, before the Razorpay Order is created. The cycle stores the exact due-item snapshot, full authoritative pricing snapshot, amount, and `price_locked_at`. A retry first discovers an order through the unique `orders.subscription_cycle_id`; when present, it validates customer, subscription, cycle, `RENEWAL` kind, currency, all monetary fields, address and the complete pricing snapshot, then reuses that snapshot rather than repricing. The debit uses that locked amount; it is never silently repriced between customer notification and charge.
+
+Local order establishment is a short Postgres transaction protected by a row lock on the cycle and the unique order-per-cycle index. It creates the order plus item/adjustment/benefit snapshots only when no cycle order exists, or recovers the exact existing order after a conflict, and writes `subscription_cycles.order_id` before any Razorpay HTTP request. This specifically repairs the crash/failure window where a valid order exists but the older code left `cycle.order_id` null. A materially conflicting existing row fails closed; it is never overwritten or deleted.
 
 V1 supplies all active subscription items to the explicit cycle-pricing interface because one subscription has one schedule. Buy-once items never enter it. Current catalog price, active promotions, entitlements, grandfathering, pair/bundle composition, inventory and renewal cycle number are re-evaluated at lock time. The subscription benefit is eligible only from cycle 2 under promotion configuration.
 
-Razorpay Order creation passes a deterministic `rnl-<32 hex cycle UUID>` receipt and `notification: { token_id, payment_after }`. The debit later calls `POST /payments/create/recurring` with customer, token, order, amount, currency and `recurring: true`. Token values are server-only and never logged. One cycle has unique local order, payment attempt, provider order and at most one shipment.
+Razorpay Order creation passes a deterministic `rnl-<32 hex cycle UUID>` receipt and `notification: { token_id, payment_after }`. A definite provider-order failure retains the local order and cycle link, so a later claimed retry uses that same local intent. Provider success is persisted through a second short transaction that creates or recovers the unique cycle payment attempt, validates its order/provider-order/amount/currency/kind, and links the provider order to the cycle. The debit later calls `POST /payments/create/recurring` with customer, token, order, amount, currency and `recurring: true`. Token values are server-only and never logged. One cycle has unique local order, payment attempt, provider order and at most one shipment.
 
 Provider timeout, reset, malformed response, or 5xx is ambiguous and becomes `RECONCILIATION_PENDING`; it is never blindly charged again. A bounded retry (maximum three attempts, 24h then 48h delay) is allowed only after a definite provider 4xx/failure. Before a retry, the service fetches `/orders/{id}/payments`; a captured payment is reconciled instead of retried. Insufficient funds and temporary failures may enter the bounded policy; mandate paused/rejected/cancelled/expired and cap failures require customer action.
 
@@ -498,7 +507,7 @@ The currently connected Vercel Hobby project runs `GET /api/internal/cron/renewa
 
 Cron is only a wake-up signal; all claims and transitions are durable in Postgres. The route requires `Authorization: Bearer <COMMERCE_CRON_SECRET>`. Because Vercel injects the value of its specially named `CRON_SECRET`, Production must configure `CRON_SECRET` to the same secret value as `COMMERCE_CRON_SECRET`. Neither is exposed to Framer. The legacy protected `POST /api/internal/renewals/run` remains an alias.
 
-Each invocation claims finite batches for notification and debit independently, processes them, persists every transition, and exits. Concurrent invocations are safe through `SKIP LOCKED` plus unique constraints.
+Each invocation claims finite batches for notification and debit independently, processes them, persists every transition, and exits. Concurrent invocations are safe through `SKIP LOCKED`, the cycle row lock, unique `orders(subscription_cycle_id)` and `payment_attempts(subscription_cycle_id)` indexes, and create-or-recover transactions. Provider calls are never made inside a database transaction. Only the worker that atomically claimed a notification cycle reaches the provider boundary, preventing concurrent workers from blindly creating two provider orders.
 
 ## Product-Agnostic Subscription Architecture
 
