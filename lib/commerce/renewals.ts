@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { loadCatalogVariants, assertInventory } from "./catalog";
 import { createCustomerMessage } from "./messages";
 import { reconcilePaymentAttempt } from "./payments/service";
+import { resolveRazorpayPaymentAttempt } from "./payments/correlation";
 import { normalizeRazorpayFailure } from "./payments/states";
 import { calculateCartQuote } from "./pricing/calculateCartQuote";
 import { loadActivePromotions, loadPromotionEntitlements, promotionVersion } from "./promotions";
@@ -295,7 +296,8 @@ export async function processRenewalCycle(cycle: ClaimedCycle) {
     return { cycle_id: cycle.id, state: "REAUTH_REQUIRED" };
   }
   const attemptResult = await supabaseAdmin.from("payment_attempts").select("*")
-    .eq("subscription_cycle_id", cycle.id).single();
+    .eq("subscription_cycle_id", cycle.id)
+    .order("created_at", { ascending: true }).limit(1).single();
   if (attemptResult.error || !attemptResult.data) throw new Error("Renewal payment attempt is missing.");
 
   if (Number(cycleResult.data.retry_count) > 0) {
@@ -303,7 +305,8 @@ export async function processRenewalCycle(cycle: ClaimedCycle) {
       const existing = await fetchRazorpayOrderPayments(cycleResult.data.provider_order_id);
       const captured = existing.items.find((payment) => payment.status === "captured");
       if (captured) {
-        await reconcilePaymentAttempt({ attempt: attemptResult.data, payment: captured });
+        const attempt = await resolveRazorpayPaymentAttempt({ payment: captured, subscriptionCycleId: cycle.id });
+        await reconcilePaymentAttempt({ attempt, payment: captured });
         return { cycle_id: cycle.id, state: "CONFIRMED", reconciled: true };
       }
     } catch (error) {
@@ -326,7 +329,8 @@ export async function processRenewalCycle(cycle: ClaimedCycle) {
       token: context.mandate.provider_token_id,
       description: `Uppermost subscription renewal cycle ${cycle.cycle_number}`,
     });
-    await reconcilePaymentAttempt({ attempt: attemptResult.data, payment });
+    const attempt = await resolveRazorpayPaymentAttempt({ payment, subscriptionCycleId: cycle.id });
+    await reconcilePaymentAttempt({ attempt, payment });
     return { cycle_id: cycle.id, state: payment.status === "captured" ? "CONFIRMED" : "PAYMENT_PENDING" };
   } catch (error) {
     if (!(error instanceof RazorpayApiError) || error.status >= 500) {
@@ -385,14 +389,11 @@ export async function reconcilePendingRenewals(limit = 20) {
   const results: Array<Record<string, unknown>> = [];
   for (const cycle of pending.data ?? []) {
     try {
-      const [providerPayments, attemptResult] = await Promise.all([
-        fetchRazorpayOrderPayments(cycle.provider_order_id),
-        supabaseAdmin.from("payment_attempts").select("*")
-          .eq("subscription_cycle_id", cycle.id).maybeSingle(),
-      ]);
+      const providerPayments = await fetchRazorpayOrderPayments(cycle.provider_order_id);
       const captured = providerPayments.items.find((payment) => payment.status === "captured");
-      if (captured && attemptResult.data) {
-        await reconcilePaymentAttempt({ attempt: attemptResult.data, payment: captured });
+      if (captured) {
+        const attempt = await resolveRazorpayPaymentAttempt({ payment: captured, subscriptionCycleId: cycle.id });
+        await reconcilePaymentAttempt({ attempt, payment: captured });
         results.push({ cycle_id: cycle.id, state: "CONFIRMED" });
       } else {
         results.push({ cycle_id: cycle.id, state: "RECONCILIATION_PENDING" });

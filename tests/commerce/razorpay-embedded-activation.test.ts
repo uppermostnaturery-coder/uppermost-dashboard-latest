@@ -79,6 +79,7 @@ function createHarness() {
     private operation: "select" | "update" | "upsert" = "select";
     private values: Row | null = null;
     private filters: Array<{ op: "eq" | "neq" | "in" | "is"; column: string; value: any }> = [];
+    private successfulPaymentOnly = false;
 
     constructor(private readonly table: keyof typeof db) {}
     select() { return this; }
@@ -88,6 +89,10 @@ function createHarness() {
     neq(column: string, value: any) { this.filters.push({ op: "neq", column, value }); return this; }
     in(column: string, value: any[]) { this.filters.push({ op: "in", column, value }); return this; }
     is(column: string, value: any) { this.filters.push({ op: "is", column, value }); return this; }
+    or(filter: string) {
+      if (filter === "status.eq.CAPTURED,normalized_state.eq.CONFIRMED") this.successfulPaymentOnly = true;
+      return this;
+    }
     order() { return this; }
     limit() { return this; }
     single() { return Promise.resolve(this.execute()); }
@@ -100,6 +105,7 @@ function createHarness() {
     }
 
     private matches(row: Row) {
+      if (this.successfulPaymentOnly && row.status !== "CAPTURED" && row.normalized_state !== "CONFIRMED") return false;
       return this.filters.every((filter) => {
         if (filter.op === "eq") return row[filter.column] === filter.value;
         if (filter.op === "neq") return row[filter.column] !== filter.value;

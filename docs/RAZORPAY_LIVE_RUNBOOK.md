@@ -61,16 +61,36 @@ All secrets are server-only. Framer receives only the Razorpay public key ID and
 
 ## Deployment sequence
 
-**Migration status (5 October 2026):** the operator confirms `supabase/migrations/20261005090000_harden_razorpay_recurring_architecture.sql` has already been applied. The embedded confirmed-token activation fix is code-only; do not rerun the migration merely for this deployment. Verify the recorded migration and installed functions/constraints instead.
+**Migration status (5 October 2026):** the operator confirms `supabase/migrations/20261005090000_harden_razorpay_recurring_architecture.sql` has already been applied. The payment-retry fix requires the new forward migration `20261005120000_allow_razorpay_payment_retries.sql` before deploying its code. It does not rewrite historical attempts. Verify migration history and new constraints/RPC; do not rerun earlier migrations manually.
 
-1. Confirm the hardening migration is present in Production migration history.
+1. Confirm prior migrations are present, then apply `20261005120000_allow_razorpay_payment_retries.sql`. If its duplicate-success preflight fails, inspect conflicting orders and stop; never auto-delete payment data.
 2. Confirm RLS remains enabled and only `service_role` can execute the claim/transition RPCs.
 3. Configure both cron variables and Razorpay Live variables in Vercel Production.
 4. Deploy Next.js.
 5. Configure the exact Razorpay events above and the matching Live webhook secret.
 6. Run the unauthorized/authorized cron tests below.
 7. Redeliver the affected Test `payment.captured` event, then run one-time, embedded-confirmation, token-first, captured-first and renewal smoke tests.
-8. Confirm one payment attempt, order, message and shipment per successful cycle.
+8. Confirm one business order, at most one successful payment attempt, one success message and one shipment per successful cycle; failed attempts may remain as sibling history.
+
+## Payment retry on one Razorpay order
+
+```mermaid
+sequenceDiagram
+  participant RP as Razorpay
+  participant API as Uppermost webhook / verify
+  participant DB as Supabase
+  RP->>API: payment.failed pay_A / order_X
+  API->>DB: bind initial unbound attempt to pay_A; mark FAILED
+  RP->>API: payment.authorized pay_B / same order_X
+  API->>DB: lock order_X, validate context, create sibling pay_B
+  RP->>API: payment.captured pay_B
+  API->>DB: find pay_B first; mark CAPTURED
+  API->>DB: confirm parent once; fulfil once
+  RP->>API: delayed authorized pay_B or duplicate capture
+  API->>DB: find pay_B; never downgrade or duplicate fulfilment
+```
+
+`provider_order_id` is a container, not a unique attempt key. The first unbound attempt binds once; new `pay_*` IDs become siblings only after previous attempts have failed. A different payment after successful settlement or while a predecessor remains active fails closed. Both webhook and `/api/payments/verify` use the same atomic correlation RPC. A transaction-scoped advisory lock and unique payment-ID/success indexes protect concurrent deliveries. Do not replay or alter the historical test order without a separate operator-approved reconciliation.
 
 ## Recurring activation operator model
 

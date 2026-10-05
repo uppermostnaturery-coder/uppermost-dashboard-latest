@@ -273,7 +273,22 @@ The webhook reads `request.text()` exactly once and verifies `X-Razorpay-Signatu
 
 ### Payment validation and monotonicity
 
-Before any reconciliation mutation, the service verifies the stored provider order ID, any already-bound provider payment ID, exact amount in paise, and currency. A mismatch is stored on the payment attempt and cannot confirm an order. `CAPTURED`/`CONFIRMED` are terminal against delayed authorized/failed events. DB uniqueness prevents duplicate provider orders/payment IDs, renewal payment attempts, orders, shipments, and customer messages.
+Before any reconciliation mutation, the service verifies the stored provider order ID, any already-bound provider payment ID, exact amount in paise, currency, and the checkout/order or subscription-cycle context. A mismatch is stored on the payment attempt and cannot confirm an order. `CAPTURED`/`CONFIRMED` are terminal against delayed authorized/failed events for the **same payment ID**.
+
+**Approved payment-attempt cardinality (5 October 2026):** one Uppermost business order has one current V1 Razorpay provider order, but that provider order is a payment container and may contain multiple distinct Razorpay `pay_*` entities. Each bound `pay_*` ID has exactly one immutable local `payment_attempt`; failed/cancelled attempts remain historical rows when a customer retries on the same provider order. A renewal cycle still has exactly one renewal business order and one locked pricing snapshot, but can have multiple historical payment attempts. At most one attempt per business order/cycle may reach `CAPTURED`/`CONFIRMED`, and fulfilment remains at most once. Provider payment IDs remain unique; provider order IDs and subscription cycle IDs are **not** unique on `payment_attempts`. Before the first `pay_*` ID, the prepared unbound attempt may be bound once; it is never rebound to a different ID. Payment-first correlation, strict context checks, an atomic create-or-recover path, and a database successful-settlement guard protect retries and concurrent callbacks. This corrects the previous one-provider-order/one-payment-attempt assumption without changing checkout preparation, renewal price locks, or provider-order creation.
+
+```mermaid
+flowchart LR
+  C[Checkout or subscription cycle] --> O[One Uppermost business order]
+  O --> R[One V1 Razorpay order]
+  R --> A[pay_A: FAILED / customer cancelled]
+  R --> B[pay_B: CAPTURED / CONFIRMED]
+  R --> N[Further failed attempts, if any]
+  B --> S[At most one successful settlement]
+  S --> F[At most one shipment]
+```
+
+Payment events and browser verification both use `resolve_razorpay_payment_attempt`. Under a transaction-scoped provider-order lock it first finds the immutable `pay_*` row, validates the provider order, paise, currency, business order and checkout/cycle, then returns it. A first payment may bind the single unbound row; a new payment ID after terminal failed rows creates a sibling. A still-active predecessor, already-confirmed order, cross-context binding, or amount/currency disagreement fails closed. The DB retains unique non-null payment IDs and a partial unique successful-settlement index by business order. The incident `pay_Tk3E2IiIdjjokP` (failed) followed by `pay_Tk3EiYNHka2D7P` (captured) under `order_Tk3Dr8MGXvR9ya` is the motivating case; existing rows are not automatically replayed or modified by this change.
 
 ### Mandate/token correlation and state machine
 
@@ -282,8 +297,9 @@ Recurring status is read from `payload.token.entity.recurring_details.status`; o
 Correlation order is:
 
 1. existing `provider_token_id`;
-2. token `payment_id` → payment attempt → Uppermost order → subscription → mandate;
-3. token `order_id` through the same chain.
+2. an already-bound mandate `provider_order_id`;
+3. token `payment_id` → payment attempt → Uppermost order → subscription → mandate;
+4. token `order_id` through the same chain, with deterministic first-attempt lookup when necessary. Never infer from provider customer ID alone.
 
 The initial checkout persists Razorpay customer ID and order ID on the mandate. A captured payment binds payment ID and token ID. When the strictly validated `RECURRING_AUTH` capture contains an embedded token with an ID, `recurring = true`, and `recurring_details.status = confirmed`, that signed webhook or verified provider-fetch payload is also authoritative mandate-confirmation evidence. It is passed through the same centralized mandate transition service as a standalone `token.confirmed` event. Token ID presence without the explicit confirmed recurring status never activates a mandate. The handler never guesses from customer ID alone. If a token webhook arrives before it can be correlated, it remains `FAILED`; once the payment binds the token, stored failed events for that token are atomically reclaimed and replayed.
 
@@ -420,7 +436,7 @@ All three paths converge to the same database state. A standalone `token.confirm
 - Binding is compare-and-set and conflict-checked across provider token, order and payment IDs. Concurrent or cross-checkout token reuse fails closed.
 - Activation preserves an existing `started_at`; therefore replay cannot reset the subscription epoch or move `next_charge_at` forward a second time.
 - Cycle creation is an idempotent upsert protected by unique `(subscription_id, cycle_number)`. Duplicate capture/token deliveries cannot create a second cycle 2.
-- Existing uniqueness constraints protect provider payment IDs, cycle payment attempts/orders, customer messages and shipments. Activation never directly creates a second payment or shipment.
+- Existing uniqueness constraints protect provider payment IDs, one successful settlement per business order/cycle, one renewal business order per cycle, customer messages and shipments. Multiple *unsuccessful* payment attempts may share a provider order or cycle; activation never directly creates a second settlement or shipment.
 - A token-first event that cannot yet correlate is intentionally marked `FAILED`, not discarded. Binding the token during capture reclaims and replays matching failed token events in creation order.
 - A processing error remains observable in `payment_events.processing_error` or `payment_attempts.raw_error`; it must not be repaired with an unaudited manual state update.
 
@@ -493,7 +509,7 @@ Local order establishment is a short Postgres transaction protected by a row loc
 
 V1 supplies all active subscription items to the explicit cycle-pricing interface because one subscription has one schedule. Buy-once items never enter it. Current catalog price, active promotions, entitlements, grandfathering, pair/bundle composition, inventory and renewal cycle number are re-evaluated at lock time. The subscription benefit is eligible only from cycle 2 under promotion configuration.
 
-Razorpay Order creation passes a deterministic `rnl-<32 hex cycle UUID>` receipt and `notification: { token_id, payment_after }`. A definite provider-order failure retains the local order and cycle link, so a later claimed retry uses that same local intent. Provider success is persisted through a second short transaction that creates or recovers the unique cycle payment attempt, validates its order/provider-order/amount/currency/kind, and links the provider order to the cycle. The debit later calls `POST /payments/create/recurring` with customer, token, order, amount, currency and `recurring: true`. Token values are server-only and never logged. One cycle has unique local order, payment attempt, provider order and at most one shipment.
+Razorpay Order creation passes a deterministic `rnl-<32 hex cycle UUID>` receipt and `notification: { token_id, payment_after }`. A definite provider-order failure retains the local order and cycle link, so a later claimed retry uses that same local intent. Provider success is persisted through a second short transaction that creates or recovers the initial unbound cycle payment attempt, validates its order/provider-order/amount/currency/kind, and links the provider order to the cycle. A later distinct Razorpay payment ID may create a sibling attempt after a terminal unsuccessful attempt, but not a second successful settlement. The debit later calls `POST /payments/create/recurring` with customer, token, order, amount, currency and `recurring: true`. Token values are server-only and never logged. One cycle has a unique local order and locked amount, one current provider order, at most one captured settlement and at most one shipment.
 
 Provider timeout, reset, malformed response, or 5xx is ambiguous and becomes `RECONCILIATION_PENDING`; it is never blindly charged again. A bounded retry (maximum three attempts, 24h then 48h delay) is allowed only after a definite provider 4xx/failure. Before a retry, the service fetches `/orders/{id}/payments`; a captured payment is reconciled instead of retried. Insufficient funds and temporary failures may enter the bounded policy; mandate paused/rejected/cancelled/expired and cap failures require customer action.
 

@@ -28,6 +28,7 @@ export async function activateSubscriptionIfReady(subscriptionId: string) {
     .select("status, normalized_state")
     .eq("order_id", subscription.initial_order_id)
     .eq("kind", "RECURRING_AUTH")
+    .or("status.eq.CAPTURED,normalized_state.eq.CONFIRMED")
     .maybeSingle();
   if (paymentResult.error) throw new Error(`Activation payment lookup failed: ${paymentResult.error.message}`);
 

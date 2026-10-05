@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   processToken: vi.fn(),
   replayTokens: vi.fn(),
   maybeSingle: vi.fn(),
+  rpc: vi.fn(),
 }));
 
 vi.mock("@/lib/commerce/webhooks", () => ({
@@ -41,7 +42,7 @@ vi.mock("@/lib/supabaseAdmin", () => {
     eq: vi.fn(() => builder),
     maybeSingle: mocks.maybeSingle,
   };
-  return { supabaseAdmin: { from: vi.fn(() => builder) } };
+  return { supabaseAdmin: { from: vi.fn(() => builder), rpc: mocks.rpc } };
 });
 
 beforeAll(() => {
@@ -66,6 +67,12 @@ beforeEach(() => {
     amount_paise: 1000,
     currency: "INR",
   }, error: null });
+  mocks.rpc.mockResolvedValue({ data: [{
+    id: "attempt-id",
+    provider_order_id: "order_1",
+    amount_paise: 1000,
+    currency: "INR",
+  }], error: null });
 });
 
 function signedRequest(body: Record<string, unknown>, eventId = "event-provider-id") {
@@ -83,6 +90,67 @@ function signedRequest(body: Record<string, unknown>, eventId = "event-provider-
 }
 
 describe("Razorpay webhook route", () => {
+  it("preserves failed pay_A and captures pay_B on the same provider order", async () => {
+    const attempts = new Map<string, { id: string; provider_payment_id: string; status: string }>();
+    mocks.rpc.mockImplementation(async (_name, args) => {
+      const id = args.p_provider_payment_id;
+      const prior = attempts.get(id);
+      if (prior) return { data: [prior], error: null };
+      const next = { id: `attempt-${id}`, provider_payment_id: id, status: "CREATED" };
+      attempts.set(id, next);
+      return { data: [next], error: null };
+    });
+    mocks.reconcile.mockImplementation(async ({ attempt, payment }) => {
+      attempt.status = payment.status.toUpperCase();
+    });
+    const { POST } = await import("../../app/api/webhooks/razorpay/route");
+    const entity = (id: string, status: string) => ({
+      id, order_id: "order_Tk3Dr8MGXvR9ya", status, amount: 750000,
+      currency: "INR", ...(status === "failed" ? { error_reason: "payment_cancelled", error_source: "customer" } : {}),
+    });
+    for (const [id, status] of [
+      ["pay_Tk3E2IiIdjjokP", "failed"],
+      ["pay_Tk3EiYNHka2D7P", "authorized"],
+      ["pay_Tk3EiYNHka2D7P", "captured"],
+    ]) {
+      const response = await POST(signedRequest({
+        event: `payment.${status}`,
+        payload: { payment: { entity: entity(id, status) } },
+      }, `event-${id}-${status}`));
+      expect(response.status).toBe(200);
+    }
+    expect(attempts.size).toBe(2);
+    expect(attempts.get("pay_Tk3E2IiIdjjokP")?.status).toBe("FAILED");
+    expect(attempts.get("pay_Tk3EiYNHka2D7P")?.status).toBe("CAPTURED");
+    expect(mocks.rpc).toHaveBeenCalledWith("resolve_razorpay_payment_attempt", expect.objectContaining({
+      p_provider_order_id: "order_Tk3Dr8MGXvR9ya",
+      p_provider_payment_id: "pay_Tk3EiYNHka2D7P",
+    }));
+  });
+
+  it("can correlate captured-before-authorized for a new payment ID", async () => {
+    const { POST } = await import("../../app/api/webhooks/razorpay/route");
+    for (const status of ["captured", "authorized"]) {
+      const response = await POST(signedRequest({ event: `payment.${status}`, payload: {
+        payment: { entity: { id: "pay_B", order_id: "order_1", status, amount: 1000, currency: "INR" } },
+      } }, `event-pay_B-${status}`));
+      expect(response.status).toBe(200);
+    }
+    expect(mocks.rpc).toHaveBeenCalledTimes(2);
+    expect(mocks.reconcile).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails webhook processing closed when atomic correlation reports a context conflict", async () => {
+    mocks.rpc.mockResolvedValue({ data: null, error: { message: "Payment amount, currency, or local context mismatch" } });
+    const { POST } = await import("../../app/api/webhooks/razorpay/route");
+    const response = await POST(signedRequest({ event: "payment.captured", payload: {
+      payment: { entity: { id: "pay_wrong", order_id: "order_1", status: "captured", amount: 999, currency: "USD" } },
+    } }));
+    expect(response.status).toBe(500);
+    expect(mocks.reconcile).not.toHaveBeenCalled();
+    expect(mocks.failed).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects an invalid raw-body HMAC before persistence", async () => {
     const { POST } = await import("../../app/api/webhooks/razorpay/route");
     const response = await POST(new Request("https://example.test/api/webhooks/razorpay", {

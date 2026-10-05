@@ -1,4 +1,3 @@
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requestHash, verifyHmacHex } from "@/lib/commerce/crypto";
 import { getRazorpayEnv } from "@/lib/commerce/env";
 import {
@@ -13,6 +12,7 @@ import {
 } from "@/lib/commerce/http";
 import { beginIdempotentRequest, completeIdempotentRequest } from "@/lib/commerce/idempotency";
 import { reconcilePaymentAttempt } from "@/lib/commerce/payments/service";
+import { resolveRazorpayPaymentAttempt } from "@/lib/commerce/payments/correlation";
 import { fetchRazorpayPayment } from "@/lib/commerce/razorpay/client";
 import { paymentVerifySchema } from "@/lib/commerce/schemas";
 import { getCheckoutStatus } from "@/lib/commerce/status";
@@ -46,23 +46,12 @@ export async function POST(request: Request) {
     );
     if (!signatureValid) throw new CommerceError("INVALID_PAYMENT_SIGNATURE", "Payment signature is invalid.", 400);
 
-    const attemptResult = await supabaseAdmin.from("payment_attempts")
-      .select("*")
-      .eq("checkout_session_id", input.checkout_session_id)
-      .eq("provider_order_id", input.razorpay_order_id)
-      .single();
-    if (attemptResult.error || !attemptResult.data) {
-      throw new CommerceError("PAYMENT_ATTEMPT_NOT_FOUND", "Payment attempt was not found.", 404);
-    }
     const payment = await fetchRazorpayPayment(input.razorpay_payment_id);
-    if (
-      payment.order_id !== input.razorpay_order_id ||
-      payment.amount !== attemptResult.data.amount_paise ||
-      payment.currency !== attemptResult.data.currency
-    ) {
+    if (payment.order_id !== input.razorpay_order_id || payment.id !== input.razorpay_payment_id) {
       throw new CommerceError("PAYMENT_MISMATCH", "Payment details do not match the checkout.", 409);
     }
-    await reconcilePaymentAttempt({ attempt: attemptResult.data, payment });
+    const attempt = await resolveRazorpayPaymentAttempt({ payment, checkoutSessionId: input.checkout_session_id });
+    await reconcilePaymentAttempt({ attempt, payment });
     const body = await getCheckoutStatus(input.checkout_session_id);
     await completeIdempotentRequest({
       recordId,

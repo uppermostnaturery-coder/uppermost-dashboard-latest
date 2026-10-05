@@ -96,6 +96,13 @@ async function locateMandate(token: RazorpayTokenEntity) {
   if (byToken.error) throw new Error(`Mandate token lookup failed: ${byToken.error.message}`);
   if (byToken.data) return byToken.data;
 
+  if (token.order_id) {
+    const byOrder = await supabaseAdmin.from("recurring_mandates").select("*")
+      .eq("provider_order_id", token.order_id).maybeSingle();
+    if (byOrder.error) throw new Error(`Mandate order lookup failed: ${byOrder.error.message}`);
+    if (byOrder.data) return byOrder.data;
+  }
+
   const lookup = token.payment_id
     ? { column: "provider_payment_id", value: token.payment_id }
     : token.order_id
@@ -105,6 +112,8 @@ async function locateMandate(token: RazorpayTokenEntity) {
   const attempt = await supabaseAdmin.from("payment_attempts")
     .select("order_id")
     .eq(lookup.column, lookup.value)
+    .order("created_at", { ascending: true })
+    .limit(1)
     .maybeSingle();
   if (attempt.error) throw new Error(`Token payment correlation failed: ${attempt.error.message}`);
   if (!attempt.data) return null;

@@ -1,4 +1,3 @@
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { sha256, verifyHmacHex } from "@/lib/commerce/crypto";
 import { getRazorpayEnv } from "@/lib/commerce/env";
 import { commerceJson, errorResponse } from "@/lib/commerce/http";
@@ -8,6 +7,7 @@ import {
   type RazorpayTokenEntity,
 } from "@/lib/commerce/payments/mandates";
 import { reconcilePaymentAttempt } from "@/lib/commerce/payments/service";
+import { resolveRazorpayPaymentAttempt } from "@/lib/commerce/payments/correlation";
 import type { RazorpayPayment } from "@/lib/commerce/razorpay/client";
 import {
   markPaymentWebhookFailed,
@@ -34,19 +34,6 @@ type RazorpayWebhook = {
 
 function isPaymentEvent(value: string): boolean {
   return (RAZORPAY_PAYMENT_EVENTS as readonly string[]).includes(value);
-}
-
-async function findPaymentAttempt(payment: RazorpayPayment) {
-  if (payment.order_id) {
-    const result = await supabaseAdmin.from("payment_attempts")
-      .select("*").eq("provider_order_id", payment.order_id).maybeSingle();
-    if (result.error) throw new Error(`Payment attempt lookup failed: ${result.error.message}`);
-    if (result.data) return result.data;
-  }
-  const result = await supabaseAdmin.from("payment_attempts")
-    .select("*").eq("provider_payment_id", payment.id).maybeSingle();
-  if (result.error) throw new Error(`Payment attempt lookup failed: ${result.error.message}`);
-  return result.data;
 }
 
 export async function POST(request: Request) {
@@ -81,8 +68,7 @@ export async function POST(request: Request) {
 
     if (isPaymentEvent(eventType)) {
       if (!payment) throw new Error(`Razorpay ${eventType} event has no payment entity.`);
-      const attempt = await findPaymentAttempt(payment);
-      if (!attempt) throw new Error("PAYMENT_ATTEMPT_CORRELATION_PENDING");
+      const attempt = await resolveRazorpayPaymentAttempt({ payment });
       await reconcilePaymentAttempt({
         attempt,
         payment,
