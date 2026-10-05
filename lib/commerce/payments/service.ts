@@ -4,7 +4,13 @@ import { ensureShipmentForOrder } from "../fulfillment";
 import type { RazorpayPayment } from "../razorpay/client";
 import { activateSubscriptionIfReady } from "../subscriptions/activation";
 import { addExactUtcDays, renewalScheduleForDueAt } from "../subscriptions/schedule";
-import { bindMandateTokenFromPayment } from "./mandates";
+import {
+  bindMandateTokenFromPayment,
+  embeddedRazorpayTokenEvent,
+  processRazorpayTokenEvent,
+  reprocessPendingTokenEvents,
+  type RazorpayTokenEntity,
+} from "./mandates";
 import { normalizeRazorpayFailure } from "./states";
 import {
   canApplyPaymentStatus,
@@ -20,9 +26,21 @@ export function shouldIgnoreNonFinalPaymentUpdate(
   return !canApplyPaymentStatus(currentState, incomingPaymentStatus);
 }
 
+export function embeddedRecurringTokenEvidence(payment: RazorpayPayment) {
+  const embedded = payment.token;
+  if (payment.token_id && embedded?.id && payment.token_id !== embedded.id) {
+    throw new Error("PAYMENT_EMBEDDED_TOKEN_ID_CONFLICT");
+  }
+  const providerTokenId = embedded?.id ?? payment.token_id ?? null;
+  const eventType = embedded ? embeddedRazorpayTokenEvent(embedded) : null;
+  return { embedded, providerTokenId, eventType };
+}
+
 export async function reconcilePaymentAttempt(args: {
   attempt: any;
   payment: RazorpayPayment;
+  providerEventId?: string;
+  providerEventCreatedAt?: number;
 }) {
   const { attempt, payment } = args;
   try {
@@ -87,7 +105,49 @@ export async function reconcilePaymentAttempt(args: {
 
   if (captured) {
     let sessionState = "CONFIRMED";
-    if (order.status === "CONFIRMED" && attempt.checkout_session_id) {
+    if (attempt.kind === "RECURRING_AUTH") {
+      try {
+        const evidence = embeddedRecurringTokenEvidence(payment);
+        if (order.subscription_id && evidence.providerTokenId && payment.order_id) {
+          await bindMandateTokenFromPayment({
+            subscriptionId: order.subscription_id,
+            providerTokenId: evidence.providerTokenId,
+            providerOrderId: payment.order_id,
+            providerPaymentId: payment.id,
+          });
+        }
+        if (evidence.eventType && evidence.embedded?.id) {
+          const correlatedToken: RazorpayTokenEntity = {
+            ...evidence.embedded,
+            payment_id: payment.id,
+            order_id: payment.order_id,
+          };
+          await processRazorpayTokenEvent({
+            eventType: evidence.eventType,
+            eventId: args.providerEventId ?? `payment-evidence:${payment.id}:${evidence.eventType}`,
+            payloadCreatedAt: args.providerEventCreatedAt ?? payment.created_at,
+            token: correlatedToken,
+          });
+        }
+        if (evidence.providerTokenId) {
+          await reprocessPendingTokenEvents(evidence.providerTokenId);
+        }
+        if (order.subscription_id) {
+          const activation = await activateSubscriptionIfReady(order.subscription_id);
+          sessionState = activation.state;
+        }
+      } catch (error) {
+        const reconciliationError = await supabaseAdmin.from("payment_attempts").update({
+          raw_error: {
+            code: error instanceof Error ? error.message : "MANDATE_TOKEN_RECONCILIATION_FAILED",
+          },
+        }).eq("id", attempt.id);
+        if (reconciliationError.error) {
+          throw new Error(`Mandate reconciliation error persistence failed: ${reconciliationError.error.message}`);
+        }
+        throw error;
+      }
+    } else if (order.status === "CONFIRMED" && attempt.checkout_session_id) {
       const currentSession = await supabaseAdmin
         .from("checkout_sessions")
         .select("state")
@@ -97,19 +157,6 @@ export async function reconcilePaymentAttempt(args: {
         throw new Error(`Checkout session lookup failed: ${currentSession.error.message}`);
       }
       sessionState = currentSession.data?.state ?? sessionState;
-    } else if (attempt.kind === "RECURRING_AUTH") {
-      if (order.subscription_id && payment.token_id && payment.order_id) {
-        await bindMandateTokenFromPayment({
-          subscriptionId: order.subscription_id,
-          providerTokenId: payment.token_id,
-          providerOrderId: payment.order_id,
-          providerPaymentId: payment.id,
-        });
-      }
-      if (order.subscription_id) {
-        const activation = await activateSubscriptionIfReady(order.subscription_id);
-        sessionState = activation.state;
-      }
     }
 
     const orderUpdate = await supabaseAdmin.from("orders").update({

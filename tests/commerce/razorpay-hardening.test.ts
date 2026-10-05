@@ -17,9 +17,12 @@ vi.mock("@/lib/commerce/webhooks", () => ({
   markPaymentWebhookFailed: mocks.failed,
 }));
 
-vi.mock("@/lib/commerce/payments/service", () => ({
-  reconcilePaymentAttempt: mocks.reconcile,
-}));
+vi.mock("@/lib/commerce/payments/service", async () => {
+  const actual = await vi.importActual<typeof import("../../lib/commerce/payments/service")>(
+    "../../lib/commerce/payments/service"
+  );
+  return { ...actual, reconcilePaymentAttempt: mocks.reconcile };
+});
 
 vi.mock("@/lib/commerce/payments/mandates", async () => {
   const actual = await vi.importActual<typeof import("../../lib/commerce/payments/mandates")>(
@@ -106,6 +109,40 @@ describe("Razorpay webhook route", () => {
     });
   }
 
+  it("passes the real embedded confirmed recurring-token payload into capture reconciliation", async () => {
+    const { POST } = await import("../../app/api/webhooks/razorpay/route");
+    const response = await POST(signedRequest({
+      event: "payment.captured",
+      created_at: 1_790_000_000,
+      payload: { payment: { entity: {
+        id: "pay_Tk3e0A9yrAGRhN",
+        order_id: "order_Tk3dtVL4COB84H",
+        status: "captured",
+        amount: 375000,
+        currency: "INR",
+        token_id: "token_Tk3e0Jvok384vy",
+        token: {
+          id: "token_Tk3e0Jvok384vy",
+          recurring: true,
+          recurring_details: { status: "confirmed" },
+        },
+      } } },
+    }));
+
+    expect(response.status).toBe(200);
+    expect(mocks.reconcile).toHaveBeenCalledWith(expect.objectContaining({
+      providerEventId: "event-provider-id",
+      providerEventCreatedAt: 1_790_000_000,
+      payment: expect.objectContaining({
+        token: expect.objectContaining({
+          id: "token_Tk3e0Jvok384vy",
+          recurring: true,
+          recurring_details: { status: "confirmed" },
+        }),
+      }),
+    }));
+  });
+
   for (const event of ["token.confirmed", "token.rejected", "token.cancelled", "token.paused"]) {
     it(`dispatches ${event} explicitly`, async () => {
       const { POST } = await import("../../app/api/webhooks/razorpay/route");
@@ -154,10 +191,26 @@ describe("Razorpay webhook route", () => {
 
 describe("mandate and payment transition policy", () => {
   it("reads recurring_details.status and never promotes an unknown state", async () => {
-    const { providerTokenState } = await import("../../lib/commerce/payments/mandates");
+    const { embeddedRazorpayTokenEvent, providerTokenState } = await import("../../lib/commerce/payments/mandates");
     expect(providerTokenState("token.confirmed", { recurring_details: { status: "confirmed" } })).toBe("ACTIVE");
     expect(() => providerTokenState("token.confirmed", { recurring_details: { status: "mystery" } })).toThrow(/unsupported/i);
     expect(() => providerTokenState("token.paused", { recurring_details: { status: "confirmed" } })).toThrow(/disagree/i);
+    expect(embeddedRazorpayTokenEvent({ id: "token_1", recurring: true, recurring_details: { status: "confirmed" } })).toBe("token.confirmed");
+    expect(embeddedRazorpayTokenEvent({ id: "token_1", recurring: true, recurring_details: { status: "rejected" } })).toBe("token.rejected");
+    expect(embeddedRazorpayTokenEvent({ id: "token_1", recurring: true, recurring_details: { status: "paused" } })).toBe("token.paused");
+    expect(embeddedRazorpayTokenEvent({ id: "token_1", recurring: true, recurring_details: { status: "cancelled" } })).toBe("token.cancelled");
+    expect(embeddedRazorpayTokenEvent({ id: "token_1", recurring: true })).toBeNull();
+    expect(embeddedRazorpayTokenEvent({ id: "token_1", recurring: false, recurring_details: { status: "confirmed" } })).toBeNull();
+    expect(() => embeddedRazorpayTokenEvent({ id: "token_1", recurring: true, recurring_details: { status: "unknown" } })).toThrow(/unsupported/i);
+  });
+
+  it("requires matching top-level and embedded token IDs", async () => {
+    const { embeddedRecurringTokenEvidence } = await import("../../lib/commerce/payments/service");
+    expect(() => embeddedRecurringTokenEvidence({
+      id: "pay_1", order_id: "order_1", status: "captured", amount: 1000, currency: "INR",
+      token_id: "token_expected",
+      token: { id: "token_other", recurring: true, recurring_details: { status: "confirmed" } },
+    })).toThrow(/TOKEN_ID_CONFLICT/);
   });
 
   it("keeps terminal and paused mandate states monotonic", async () => {

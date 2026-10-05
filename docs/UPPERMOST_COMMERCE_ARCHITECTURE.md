@@ -1,7 +1,7 @@
 # Uppermost® Commerce V1 — Architecture & Implementation Blueprint
 
 **Document status:** FROZEN PRODUCTION ARCHITECTURE
-**Version:** 1.3
+**Version:** 1.4
 **Date:** 5 October 2026
 **Audience:** CXO / Product / Engineering / Framer / Operations / Growth  
 **Canonical repository path:** `docs/UPPERMOST_COMMERCE_ARCHITECTURE.md`
@@ -285,7 +285,7 @@ Correlation order is:
 2. token `payment_id` → payment attempt → Uppermost order → subscription → mandate;
 3. token `order_id` through the same chain.
 
-The initial checkout persists Razorpay customer ID and order ID on the mandate. A captured payment binds payment ID and token ID. The handler never guesses from customer ID alone. If a token webhook arrives before it can be correlated, it remains `FAILED`; once the payment binds the token, stored failed events for that token are atomically reclaimed and replayed.
+The initial checkout persists Razorpay customer ID and order ID on the mandate. A captured payment binds payment ID and token ID. When the strictly validated `RECURRING_AUTH` capture contains an embedded token with an ID, `recurring = true`, and `recurring_details.status = confirmed`, that signed webhook or verified provider-fetch payload is also authoritative mandate-confirmation evidence. It is passed through the same centralized mandate transition service as a standalone `token.confirmed` event. Token ID presence without the explicit confirmed recurring status never activates a mandate. The handler never guesses from customer ID alone. If a token webhook arrives before it can be correlated, it remains `FAILED`; once the payment binds the token, stored failed events for that token are atomically reclaimed and replayed.
 
 Mandate transitions are centralized:
 
@@ -310,7 +310,151 @@ This is deliberate and follows Razorpay's Recurring Payments token contract:
 
 ### Initial recurring activation ordering
 
-Payment capture and token confirmation are independent prerequisites. Capture confirms the paid initial order but leaves checkout/subscription `ACTIVATION_PENDING` while the mandate is not `ACTIVE`. Token confirmation alone does not activate without a captured recurring-auth payment. Whichever event arrives second calls the same activation function; only then are the subscription and checkout set `ACTIVE`/`CONFIRMED` and cycle 2 created. Token ID presence alone is not proof of an active mandate.
+Payment capture and mandate confirmation are independent prerequisites. Confirmation may arrive as either (a) a standalone `token.confirmed` event or (b) the embedded confirmed recurring-token entity in a strictly validated `payment.captured` payload/provider fetch. Capture without either form of confirmation leaves checkout/subscription `ACTIVATION_PENDING`; token confirmation alone does not activate without a captured recurring-auth payment. Every arrival order calls the same mandate transition and subscription activation services; only when both prerequisites are persisted are the subscription and checkout set `ACTIVE`/`CONFIRMED` and cycle 2 created. Token ID presence alone is not proof of an active mandate. Duplicate capture/token events converge through monotonic transitions and the unique `(subscription_id, cycle_number)` cycle constraint.
+
+#### Authoritative activation predicate
+
+```text
+initial subscription activation =
+  strictly validated RECURRING_AUTH payment is CAPTURED
+  AND the exactly correlated recurring mandate is ACTIVE
+  AND that mandate has a bound provider_token_id
+```
+
+There is no alternative activation shortcut. In particular, an order being `CONFIRMED`, a browser success callback, a populated `token_id`, or `payment.status = captured` on its own is insufficient. `activateSubscriptionIfReady` evaluates the persisted prerequisites and is safe to call after either prerequisite changes.
+
+| Persisted payment | Persisted mandate | Checkout | Subscription | Side effects |
+|---|---|---|---|---|
+| not captured | not `ACTIVE` | `ACTIVATION_PENDING` | `PENDING_AUTH` | no future cycle |
+| captured | not `ACTIVE` | `ACTIVATION_PENDING` | `PENDING_AUTH` | no future cycle |
+| not captured | `ACTIVE` | `ACTIVATION_PENDING` | `PENDING_AUTH` | no future cycle |
+| captured | `ACTIVE` with bound token | `CONFIRMED` | `ACTIVE` | set `started_at` once, derive `next_charge_at`, upsert exactly one cycle 2 |
+
+#### Recurring authorization reconciliation flow
+
+```mermaid
+flowchart TD
+  E[Signed payment.captured webhook<br/>or verified GET /payments/:id result] --> V[Validate provider order ID,<br/>existing payment ID, amount in paise, currency]
+  V -->|mismatch| X[Fail closed<br/>persist reconciliation error<br/>no activation]
+  V -->|exact match| C[Persist payment CAPTURED / CONFIRMED]
+  C --> K{Payment attempt kind?}
+  K -->|ONE_TIME| O[Confirm checkout/order<br/>normal fulfilment path]
+  K -->|RECURRING_AUTH| T{Embedded token present?}
+  T -->|no| P[Evaluate activation predicate]
+  T -->|yes| I[Require token ID consistency<br/>bind order + payment + token to mandate]
+  I --> S{recurring exactly true<br/>and recognized recurring_details.status?}
+  S -->|confirmed| CT[Central token.confirmed transition service]
+  S -->|paused/rejected/cancelled| NT[Central matching token transition service<br/>never activate]
+  S -->|status absent| P
+  S -->|unknown or conflicting ID| X
+  CT --> R[Replay any earlier failed token events<br/>for this exact token]
+  NT --> R
+  R --> P
+  P --> A{Captured AND mandate ACTIVE?}
+  A -->|no| AP[Checkout ACTIVATION_PENDING<br/>subscription PENDING_AUTH]
+  A -->|yes| AC[Checkout CONFIRMED<br/>subscription ACTIVE<br/>started_at + next_charge_at<br/>upsert cycle 2]
+```
+
+The same reconciliation path is entered from `POST /api/webhooks/razorpay` and `POST /api/payments/verify`. The webhook provides signed provider data; browser verification first validates the checkout signature and then fetches the payment directly from Razorpay. Neither path trusts browser-supplied payment fields beyond identifiers used for correlation.
+
+#### Embedded token evidence rules
+
+These rules apply only after strict payment identity validation succeeds for the stored `RECURRING_AUTH` attempt.
+
+| Embedded payment token evidence | Result |
+|---|---|
+| no embedded token and no `token_id` | payment is captured; mandate is unchanged; activation remains pending unless already active |
+| `token_id` only | bind when correlation is conflict-free; **do not activate** |
+| embedded `id`, `recurring = true`, status absent | bind when conflict-free; **do not activate** |
+| embedded `id`, `recurring = true`, status `confirmed` | bind exact token; invoke centralized `token.confirmed`; evaluate activation |
+| embedded `id`, `recurring = true`, status `paused`, `rejected`, or `cancelled` | invoke the corresponding centralized transition; do not activate |
+| embedded token with `recurring !== true` | not recurring-confirmation evidence; do not activate |
+| top-level `token_id` differs from embedded `token.id` | fail closed with `PAYMENT_EMBEDDED_TOKEN_ID_CONFLICT` |
+| token/order/payment differs from an existing mandate binding | fail closed with the relevant mandate-provider conflict; record reconciliation error |
+| unknown non-empty recurring status | fail closed; never coerce to active |
+
+Only `confirmed` is positive activation evidence. Recognized negative states use the same state machine as standalone token webhooks. An absent state is incomplete evidence, while an unknown state is contradictory/unsupported evidence and fails processing for investigation.
+
+#### Arrival-order convergence
+
+```mermaid
+sequenceDiagram
+  participant RP as Razorpay
+  participant API as Uppermost API
+  participant DB as Supabase
+  participant ACT as Activation service
+
+  alt A. capture contains embedded confirmed token
+    RP->>API: payment.captured + token recurring/confirmed
+    API->>DB: validate and persist CAPTURED
+    API->>DB: bind token and apply centralized ACTIVE transition
+    API->>ACT: activateSubscriptionIfReady
+    ACT->>DB: ACTIVE + CONFIRMED + upsert cycle 2
+  else B. capture arrives without confirmed token
+    RP->>API: payment.captured without confirmed evidence
+    API->>DB: persist CAPTURED
+    API->>ACT: activateSubscriptionIfReady
+    ACT->>DB: keep ACTIVATION_PENDING
+    RP->>API: later token.confirmed
+    API->>DB: apply centralized ACTIVE transition
+    API->>ACT: activateSubscriptionIfReady
+    ACT->>DB: ACTIVE + CONFIRMED + upsert cycle 2
+  else C. token confirmation arrives first
+    RP->>API: token.confirmed
+    API->>DB: correlate, or persist FAILED if correlation is not ready
+    RP->>API: later payment.captured
+    API->>DB: bind exact token and persist CAPTURED
+    API->>DB: replay correlated FAILED token event if necessary
+    API->>ACT: activateSubscriptionIfReady
+    ACT->>DB: ACTIVE + CONFIRMED + upsert cycle 2
+  end
+```
+
+All three paths converge to the same database state. A standalone `token.confirmed` remains supported even when the embedded-token path already activated the mandate. Provider delivery order is not a business-state ordering guarantee.
+
+#### Idempotency, replay, and concurrency guarantees
+
+- Webhook identity is unique on `(provider, provider_event_id)` and claimed atomically. A processed duplicate is acknowledged without processing; concurrent work receives `IN_PROGRESS`; failed or stale work can be reclaimed.
+- Payment state is monotonic. A later `payment.authorized` or `payment.failed` cannot downgrade `CAPTURED`/`CONFIRMED`; a repeated capture may still run reconciliation so an older `ACTIVATION_PENDING` checkout can heal after this code is deployed.
+- Mandate events carry provider occurrence time. Older events are ignored by the database transition function; terminal and monotonic transition rules still apply to newer events.
+- Binding is compare-and-set and conflict-checked across provider token, order and payment IDs. Concurrent or cross-checkout token reuse fails closed.
+- Activation preserves an existing `started_at`; therefore replay cannot reset the subscription epoch or move `next_charge_at` forward a second time.
+- Cycle creation is an idempotent upsert protected by unique `(subscription_id, cycle_number)`. Duplicate capture/token deliveries cannot create a second cycle 2.
+- Existing uniqueness constraints protect provider payment IDs, cycle payment attempts/orders, customer messages and shipments. Activation never directly creates a second payment or shipment.
+- A token-first event that cannot yet correlate is intentionally marked `FAILED`, not discarded. Binding the token during capture reclaims and replays matching failed token events in creation order.
+- A processing error remains observable in `payment_events.processing_error` or `payment_attempts.raw_error`; it must not be repaired with an unaudited manual state update.
+
+#### Recovery and operational boundaries
+
+- A recurring checkout in `ACTIVATION_PENDING` is not a failed payment and must not launch a second checkout. Framer polls checkout status.
+- After deploying reconciliation improvements, redelivery of the original signed `payment.captured` event or a normal verified payment fetch can heal a captured checkout when the provider payload contains confirmed embedded-token evidence.
+- There is deliberately no public/manual force-activate route. Operators must prove capture and exact token confirmation through signed webhook data or a verified provider fetch.
+- Shipment creation is gated by capture, but subscription activation additionally requires the active mandate. The immutable paid order may be confirmed while the recurring checkout remains `ACTIVATION_PENDING`.
+- The database hardening migration `20261005090000_harden_razorpay_recurring_architecture.sql` supplies durable claims, provider bindings, transition ordering and uniqueness constraints. **Environment note (5 October 2026): the operator confirms this migration is already applied. The embedded-token reconciliation fix is code-only and requires no additional migration.** Verify migration history rather than rerunning it solely for this fix.
+
+#### Implemented now vs future scope
+
+| Area | Implemented production behavior | Explicit future scope |
+|---|---|---|
+| initial activation | embedded confirmed token and standalone `token.confirmed`, in either order | none required for the tested Razorpay flow |
+| activation recovery | webhook redelivery, verified provider fetch, failed token-event replay | operator reconciliation UI/route only if it preserves the same evidence and audit guarantees |
+| paused mandate resume | `token.confirmed` webhook cannot reactivate `PAUSED` | server-only exact-token fetch and audited resume transition after Razorpay confirms the supported customer/provider flow |
+| unknown provider states | fail closed and retain diagnostic state | add an allowlisted transition only after provider lifecycle evidence and tests |
+| multiple schedules | one interval per V1 subscription | schedule identity and per-schedule cycle uniqueness migration described below |
+
+#### Implementation and test traceability
+
+| Concern | Authoritative implementation | Regression evidence |
+|---|---|---|
+| raw webhook verification, allowlisted dispatch, durable claim | `app/api/webhooks/razorpay/route.ts`, `lib/commerce/webhooks.ts` | `tests/commerce/razorpay-hardening.test.ts` |
+| strict payment identity and payment monotonicity | `lib/commerce/payments/transitions.ts`, `lib/commerce/payments/service.ts` | `tests/commerce/razorpay-hardening.test.ts` |
+| embedded token evidence, binding, centralized mandate transition, replay | `lib/commerce/payments/service.ts`, `lib/commerce/payments/mandates.ts` | `tests/commerce/razorpay-embedded-activation.test.ts`, `tests/commerce/razorpay-hardening.test.ts` |
+| two-prerequisite activation and one cycle 2 | `lib/commerce/subscriptions/activation.ts` | `tests/commerce/razorpay-embedded-activation.test.ts` |
+| browser-return provider fetch | `app/api/payments/verify/route.ts`, `lib/commerce/razorpay/client.ts` | typecheck/build plus embedded reconciliation service tests |
+| durable webhook/mandate/cycle database guards | `supabase/migrations/20261005090000_harden_razorpay_recurring_architecture.sql` | migration review plus production SQL audit |
+| renewal claim, cap, timing, retry policy | `lib/commerce/renewals.ts`, `lib/commerce/subscriptions/schedule.ts`, cron routes | `tests/commerce/renewal-hardening.test.ts` |
+
+Automated tests prove local routing, validation, state convergence and duplicate resistance using controlled provider/database seams. They do not prove Razorpay delivery, Vercel environment configuration, Supabase production migration state, or Shiprocket behavior. Those remain mandatory Test/Live-mode runbook checks. A future AI or engineer must not convert a passing mocked test into a claim that a provider callback was delivered in production.
 
 ## Renewal Sequence
 
@@ -370,7 +514,9 @@ Payment and scheduling code has no Gir, Murrah, Ghee, or category dependency. It
 
 Server-only Vercel Production variables: `SUPABASE_SERVICE_ROLE_KEY`, `COMMERCE_TOKEN_PEPPER`, `COMMERCE_CRON_SECRET`, `CRON_SECRET` (same value for Vercel scheduling), `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, Shiprocket credentials/webhook secret, and optional Shopify Admin credentials when that adapter is used. Public/config variables: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `RAZORPAY_KEY_ID`, `RAZORPAY_API_BASE_URL=https://api.razorpay.com/v1`, commerce origin/inventory settings, pickup postcode/location and mandate/quote settings. Recurring tokens never enter environment variables or the browser.
 
-Deploy in this order: apply the database migration; configure Production variables; deploy Next.js; configure Razorpay Live webhook URL/events/secret; verify invalid and signed webhook requests; invoke unauthorized/authorized cron checks; run one low-value one-time test; run recurring authorization in both webhook orders; validate a notification-stage renewal, debit-stage capture, single order/message/shipment, and experience page.
+General first-time deployment order: apply unapplied database migrations; configure Production variables; deploy Next.js; configure Razorpay Live webhook URL/events/secret; verify invalid and signed webhook requests; invoke unauthorized/authorized cron checks; run one low-value one-time test; run all three recurring authorization orders (embedded confirmation, capture then token, token then capture); validate a notification-stage renewal, debit-stage capture, single order/message/shipment, and experience page.
+
+For the 5 October 2026 embedded-token reconciliation deployment, the operator confirms the hardening migration is already applied. Verify migration history and deploy the code; no new migration accompanies that fix.
 
 ## Customer Messaging
 

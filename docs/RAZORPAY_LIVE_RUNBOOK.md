@@ -61,14 +61,45 @@ All secrets are server-only. Framer receives only the Razorpay public key ID and
 
 ## Deployment sequence
 
-1. Apply `supabase/migrations/20261005090000_harden_razorpay_recurring_architecture.sql` to Production.
-2. Confirm RLS remains enabled and only `service_role` can execute the two claim RPCs.
+**Migration status (5 October 2026):** the operator confirms `supabase/migrations/20261005090000_harden_razorpay_recurring_architecture.sql` has already been applied. The embedded confirmed-token activation fix is code-only; do not rerun the migration merely for this deployment. Verify the recorded migration and installed functions/constraints instead.
+
+1. Confirm the hardening migration is present in Production migration history.
+2. Confirm RLS remains enabled and only `service_role` can execute the claim/transition RPCs.
 3. Configure both cron variables and Razorpay Live variables in Vercel Production.
 4. Deploy Next.js.
 5. Configure the exact Razorpay events above and the matching Live webhook secret.
 6. Run the unauthorized/authorized cron tests below.
-7. Run one-time, recurring authorization, token-first, captured-first and renewal smoke tests.
+7. Redeliver the affected Test `payment.captured` event, then run one-time, embedded-confirmation, token-first, captured-first and renewal smoke tests.
 8. Confirm one payment attempt, order, message and shipment per successful cycle.
+
+## Recurring activation operator model
+
+```mermaid
+flowchart TD
+  P{RECURRING_AUTH payment<br/>strictly verified CAPTURED?}
+  M{Exact mandate ACTIVE<br/>with bound token?}
+  P -->|no| W[ACTIVATION_PENDING<br/>do not retry payment]
+  P -->|yes| M
+  M -->|no| W
+  M -->|yes| A[Subscription ACTIVE<br/>checkout CONFIRMED<br/>one future cycle]
+  W --> R{New authoritative evidence?}
+  R -->|signed webhook redelivery| P
+  R -->|verified Razorpay fetch| P
+  R -->|none| Q[Continue polling and investigate<br/>never force state manually]
+```
+
+Positive mandate evidence is either a correlated standalone `token.confirmed` or a strictly validated capture/fetch containing the exact embedded token with `recurring = true` and `recurring_details.status = confirmed`. A token ID alone is not positive evidence.
+
+### Event-order outcomes
+
+| Provider delivery | Expected result |
+|---|---|
+| capture with embedded confirmed token | capture, bind token, central mandate transition, activate immediately |
+| capture without confirmed token, then `token.confirmed` | first response remains `ACTIVATION_PENDING`; later event activates |
+| `token.confirmed`, then capture | mandate becomes active if correlated; activation waits for capture; an initially uncorrelatable token event is replayed after binding |
+| duplicate capture and/or duplicate token confirmation | same final state, same `started_at`, same `next_charge_at`, exactly one cycle 2 |
+| embedded paused/rejected/cancelled | central negative transition; never activate |
+| embedded unknown status or provider binding conflict | fail closed and persist diagnostic error |
 
 ## API impact
 
@@ -90,7 +121,7 @@ All secrets are server-only. Framer receives only the Razorpay public key ID and
 | Method/path | Change |
 |---|---|
 | `POST /api/checkout/prepare` | Persists Razorpay order correlation on a pending recurring mandate; response is unchanged |
-| `POST /api/payments/verify` | Uses centralized strict order/payment/amount/currency and monotonic reconciliation; request/response unchanged |
+| `POST /api/payments/verify` | Uses centralized strict order/payment/amount/currency and monotonic reconciliation; a verified fetched payment may also supply embedded confirmed recurring-token evidence; request/response unchanged |
 | `GET /api/checkout/status` | Can remain `ACTIVATION_PENDING` until both capture and token confirmation; response schema unchanged |
 | `GET /api/experience` | Reflects the hardened persisted state; response schema unchanged |
 
@@ -174,7 +205,7 @@ curl -i 'https://uppermost-dashboard-latest-orcin.vercel.app/api/payments/verify
   }'
 ```
 
-Success is HTTP 200 in checkout-status shape. Signature/order/payment/amount/currency mismatch cannot confirm payment.
+Success is HTTP 200 in checkout-status shape. Signature/order/payment/amount/currency mismatch cannot confirm payment. For `RECURRING_AUTH`, a fetched payment containing `token.id`, `token.recurring = true`, and `token.recurring_details.status = confirmed` activates the same centralized mandate transition used by `token.confirmed`. A token ID without that explicit status remains `ACTIVATION_PENDING`.
 
 ### Checkout polling
 
@@ -230,7 +261,13 @@ const entities = {
     payload: { payment: { entity: {
       id: 'pay_<EXISTING_TEST_PAYMENT_ID>',
       order_id: 'order_<EXISTING_TEST_ORDER_ID>',
-      status: 'captured', amount: 100, currency: 'INR'
+      status: 'captured', amount: 100, currency: 'INR',
+      token_id: 'token_<EXISTING_TEST_TOKEN_ID>',
+      token: {
+        id: 'token_<EXISTING_TEST_TOKEN_ID>',
+        recurring: true,
+        recurring_details: { status: 'confirmed' }
+      }
     } } }
   },
   'token.confirmed': {
@@ -265,13 +302,154 @@ Set `WEBHOOK_EVENT='token.confirmed'` to test the second exact supported payload
 
 No manual reconciliation route exists. Ambiguous renewals remain `RECONCILIATION_PENDING` for webhook/provider-fetch recovery and operator investigation; do not trigger another debit manually without proving the first did not succeed.
 
+## Single-query checkout audit
+
+Use this read-only query in Supabase SQL Editor to inspect a checkout end to end. It derives customer and subscription scope from the checkout/order rather than relying on a separately pasted customer ID, which avoids accidentally mixing two transactions. Replace only the two IDs in `target`.
+
+The output is an operator-only diagnostic and can contain PII, provider IDs, embedded recurring-token metadata, raw webhook payloads, addresses, and message content. Do not paste the raw result into Framer, analytics, tickets, chat, or an AI system. Redact it first and never share token values or secrets.
+
+```sql
+with target as (
+  select
+    '<CHECKOUT_SESSION_ID>'::uuid as checkout_session_id,
+    '<ORDER_ID>'::uuid as order_id
+),
+scope as (
+  select
+    t.checkout_session_id,
+    t.order_id,
+    o.customer_id,
+    o.subscription_id
+  from target t
+  join public.orders o on o.id = t.order_id
+  where o.checkout_session_id = t.checkout_session_id
+),
+attempts as (
+  select pa.*
+  from public.payment_attempts pa, scope s
+  where pa.checkout_session_id = s.checkout_session_id
+     or pa.order_id = s.order_id
+),
+subscriptions_in_scope as (
+  select sub.*
+  from public.subscriptions sub, scope s
+  where sub.id = s.subscription_id
+     or (s.subscription_id is null and sub.customer_id = s.customer_id)
+),
+mandates_in_scope as (
+  select rm.*
+  from public.recurring_mandates rm
+  where rm.subscription_id in (select id from subscriptions_in_scope)
+),
+shipments_in_scope as (
+  select sh.*
+  from public.shipments sh, scope s
+  where sh.order_id = s.order_id
+),
+messages_in_scope as (
+  select cm.*
+  from public.customer_messages cm, scope s
+  where cm.order_id = s.order_id
+     or cm.subscription_id in (select id from subscriptions_in_scope)
+     or cm.payment_attempt_id in (select id from attempts)
+     or cm.shipment_id in (select id from shipments_in_scope)
+)
+select jsonb_build_object(
+  'checkout_session', (
+    select to_jsonb(cs) from public.checkout_sessions cs, scope s
+    where cs.id = s.checkout_session_id
+  ),
+  'initial_order', (
+    select to_jsonb(o) from public.orders o, scope s where o.id = s.order_id
+  ),
+  'order_items', coalesce((
+    select jsonb_agg(to_jsonb(oi) order by oi.created_at)
+    from public.order_items oi, scope s where oi.order_id = s.order_id
+  ), '[]'::jsonb),
+  'payment_attempts', coalesce((
+    select jsonb_agg(to_jsonb(pa) order by pa.created_at) from attempts pa
+  ), '[]'::jsonb),
+  'payment_events', coalesce((
+    select jsonb_agg(to_jsonb(pe) order by pe.created_at)
+    from public.payment_events pe
+    where pe.payment_attempt_id in (select id from attempts)
+       or pe.provider_order_id in (select provider_order_id from attempts)
+       or pe.provider_payment_id in (
+         select provider_payment_id from attempts where provider_payment_id is not null
+       )
+       or pe.raw_payload #>> '{payload,token,entity,id}' in (
+         select provider_token_id from mandates_in_scope where provider_token_id is not null
+       )
+  ), '[]'::jsonb),
+  'subscriptions', coalesce((
+    select jsonb_agg(to_jsonb(sub) order by sub.created_at)
+    from subscriptions_in_scope sub
+  ), '[]'::jsonb),
+  'recurring_mandates', coalesce((
+    select jsonb_agg(to_jsonb(rm) order by rm.created_at) from mandates_in_scope rm
+  ), '[]'::jsonb),
+  'subscription_items', coalesce((
+    select jsonb_agg(to_jsonb(si) order by si.created_at)
+    from public.subscription_items si
+    where si.subscription_id in (select id from subscriptions_in_scope)
+  ), '[]'::jsonb),
+  'subscription_cycles', coalesce((
+    select jsonb_agg(to_jsonb(sc) order by sc.created_at)
+    from public.subscription_cycles sc
+    where sc.subscription_id in (select id from subscriptions_in_scope)
+  ), '[]'::jsonb),
+  'order_adjustments', coalesce((
+    select jsonb_agg(to_jsonb(oa) order by oa.created_at)
+    from public.order_adjustments oa, scope s where oa.order_id = s.order_id
+  ), '[]'::jsonb),
+  'order_benefits', coalesce((
+    select jsonb_agg(to_jsonb(ob) order by ob.created_at)
+    from public.order_benefits ob, scope s where ob.order_id = s.order_id
+  ), '[]'::jsonb),
+  'shipments', coalesce((
+    select jsonb_agg(to_jsonb(sh) order by sh.created_at) from shipments_in_scope sh
+  ), '[]'::jsonb),
+  'tracking_events', coalesce((
+    select jsonb_agg(to_jsonb(te) order by te.occurred_at)
+    from public.tracking_events te
+    where te.shipment_id in (select id from shipments_in_scope)
+  ), '[]'::jsonb),
+  'customer_messages', coalesce((
+    select jsonb_agg(to_jsonb(cm) order by cm.created_at) from messages_in_scope cm
+  ), '[]'::jsonb),
+  'message_deliveries', coalesce((
+    select jsonb_agg(to_jsonb(md) order by md.created_at)
+    from public.message_deliveries md
+    where md.customer_message_id in (select id from messages_in_scope)
+  ), '[]'::jsonb),
+  'idempotency_records', coalesce((
+    select jsonb_agg(to_jsonb(ir) order by ir.created_at)
+    from public.idempotency_records ir, scope s
+    where ir.response_reference_id in (s.checkout_session_id, s.order_id)
+  ), '[]'::jsonb)
+) as commerce_audit;
+```
+
+For a successfully activated initial recurring checkout, verify all of these together:
+
+- payment attempt `status = CAPTURED` and `normalized_state = CONFIRMED`;
+- mandate `status = ACTIVE` with the expected provider token/order/payment IDs;
+- subscription `status = ACTIVE`, non-null `started_at`, and non-null `next_charge_at`;
+- checkout `state = CONFIRMED`;
+- exactly one future cycle (normally cycle 2) for the subscription;
+- webhook event is `PROCESSED`, not silently absent or indefinitely `PROCESSING`;
+- no duplicate order, payment attempt, cycle, customer message, or shipment.
+
 ## Production validation checklist
 
-- Migration applied before deployment.
+- Hardening migration is present in Production migration history; it is not rerun for the code-only embedded-token fix.
 - Invalid webhook HMAC returns 401 without persistence.
 - Duplicate processed event returns idempotent 200.
 - Failed/stale event is reclaimable.
-- Both captured-first and token-first reach active only after both prerequisites.
+- Captured-first with an embedded confirmed recurring token activates without requiring a separate `token.confirmed` delivery.
+- Captured-first without embedded confirmation remains `ACTIVATION_PENDING` until standalone `token.confirmed` arrives.
+- Token-first and captured-later converges to the same active state.
+- Duplicate capture plus duplicate/later token confirmation creates only one future cycle and does not advance `next_charge_at` twice.
 - Late `payment.failed` cannot downgrade capture.
 - Token payload uses `recurring_details.status`; cancelled remains terminal.
 - Hourly cron receives Bearer auth; unauthorized request is 401.

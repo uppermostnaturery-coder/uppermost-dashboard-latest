@@ -930,7 +930,7 @@ Captured one-time payment:
 }
 ```
 
-Captured subscription authorization whose correlated recurring mandate has not reached `ACTIVE` yet:
+Captured subscription authorization whose correlated recurring mandate has not reached `ACTIVE` yet. This can occur when the captured payment contains only a token ID or does not contain `token.recurring_details.status = confirmed`, and no correlated standalone `token.confirmed` has been processed:
 
 ```json
 {
@@ -1300,7 +1300,7 @@ Implemented launch-window example:
 - Projected recurring total: `700000` paise.
 - Default mandate maximum: `max(700000, 700000 + 250000) = 950000` paise.
 - Prepare uses `payment_kind: RECURRING_AUTH`, returns Razorpay customer ID and Uppermost subscription UUID, and requires accepted recurring consent.
-- `CONFIRMED` requires captured payment plus a correlated recurring mandate in `ACTIVE`. Token-ID presence alone is not sufficient; capture without active mandate is `ACTIVATION_PENDING`.
+- `CONFIRMED` requires captured payment plus a correlated recurring mandate in `ACTIVE`. Token-ID presence alone is not sufficient. The mandate can become active from either a correlated standalone `token.confirmed` or a strictly verified captured/fetched payment whose exact embedded token has `recurring = true` and `recurring_details.status = confirmed`. Capture without either confirmation form is `ACTIVATION_PENDING`.
 
 ## 13. Framer integration sequence
 
@@ -1369,7 +1369,7 @@ Aligned behavior:
 - Prepare reprices and returns a fresh quote instead of silently changing the charge.
 - Money-changing browser endpoints are durable/idempotent.
 - Fulfillment starts only on captured payment.
-- Subscription activation requires captured payment and a correlated `ACTIVE` mandate; otherwise `ACTIVATION_PENDING`.
+- Subscription activation requires captured payment and a correlated `ACTIVE` mandate; otherwise `ACTIVATION_PENDING`. Actual code accepts both standalone `token.confirmed` and an exact embedded recurring token whose provider-reported status is `confirmed`; both enter the same centralized mandate transition.
 - Provider secrets and raw provider errors are not returned.
 - Experience lookup uses a high-entropy token and does not expose full address, email, payment token, or mandate token.
 

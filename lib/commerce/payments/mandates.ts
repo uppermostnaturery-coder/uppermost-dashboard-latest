@@ -17,6 +17,7 @@ export type RazorpayTokenEntity = {
   customer_id?: string;
   payment_id?: string;
   order_id?: string;
+  recurring?: boolean;
   created_at?: number;
   recurring_details?: { status?: string };
 };
@@ -30,6 +31,22 @@ const TOKEN_EVENT_STATE: Record<RazorpayTokenEvent, MandateState> = {
 
 export function isRazorpayTokenEvent(value: string): value is RazorpayTokenEvent {
   return (RAZORPAY_TOKEN_EVENTS as readonly string[]).includes(value);
+}
+
+export function embeddedRazorpayTokenEvent(token: RazorpayTokenEntity): RazorpayTokenEvent | null {
+  if (!token.id || token.recurring !== true) return null;
+  const status = token.recurring_details?.status?.trim().toLowerCase();
+  if (!status) return null;
+  const eventByStatus: Record<string, RazorpayTokenEvent> = {
+    confirmed: "token.confirmed",
+    rejected: "token.rejected",
+    paused: "token.paused",
+    cancelled: "token.cancelled",
+    canceled: "token.cancelled",
+  };
+  const eventType = eventByStatus[status];
+  if (!eventType) throw new Error(`Unsupported Razorpay embedded recurring token status: ${status}`);
+  return eventType;
 }
 
 export function providerTokenState(eventType: RazorpayTokenEvent, token: RazorpayTokenEntity): MandateState {
@@ -101,6 +118,25 @@ async function locateMandate(token: RazorpayTokenEntity) {
   return mandate.data;
 }
 
+function assertMandateProviderBinding(
+  mandate: {
+    provider_token_id?: string | null;
+    provider_order_id?: string | null;
+    provider_payment_id?: string | null;
+  },
+  token: RazorpayTokenEntity
+) {
+  if (mandate.provider_token_id && mandate.provider_token_id !== token.id) {
+    throw new Error("MANDATE_PROVIDER_TOKEN_CONFLICT");
+  }
+  if (token.order_id && mandate.provider_order_id && mandate.provider_order_id !== token.order_id) {
+    throw new Error("MANDATE_PROVIDER_ORDER_CONFLICT");
+  }
+  if (token.payment_id && mandate.provider_payment_id && mandate.provider_payment_id !== token.payment_id) {
+    throw new Error("MANDATE_PROVIDER_PAYMENT_CONFLICT");
+  }
+}
+
 export async function processRazorpayTokenEvent(args: {
   eventType: RazorpayTokenEvent;
   eventId: string;
@@ -110,6 +146,7 @@ export async function processRazorpayTokenEvent(args: {
   if (!args.token.id) throw new Error("Razorpay token event has no token ID.");
   const mandate = await locateMandate(args.token);
   if (!mandate) throw new Error("TOKEN_CORRELATION_PENDING");
+  assertMandateProviderBinding(mandate, args.token);
   const occurredAt = eventCreatedAt(args.payloadCreatedAt, args.token.created_at);
   const incoming = providerTokenState(args.eventType, args.token);
   const transition = await supabaseAdmin.rpc("apply_recurring_mandate_event", {
@@ -143,12 +180,37 @@ export async function bindMandateTokenFromPayment(args: {
   providerOrderId: string;
   providerPaymentId: string;
 }) {
-  const result = await supabaseAdmin.from("recurring_mandates").update({
+  const current = await supabaseAdmin.from("recurring_mandates")
+    .select("id, provider_token_id, provider_order_id, provider_payment_id")
+    .eq("subscription_id", args.subscriptionId)
+    .single();
+  if (current.error || !current.data) {
+    throw new Error(`Mandate payment correlation failed: ${current.error?.message ?? "Mandate not found"}`);
+  }
+  assertMandateProviderBinding(current.data, {
+    id: args.providerTokenId,
+    order_id: args.providerOrderId,
+    payment_id: args.providerPaymentId,
+  });
+
+  let update = supabaseAdmin.from("recurring_mandates").update({
     provider_token_id: args.providerTokenId,
     provider_order_id: args.providerOrderId,
     provider_payment_id: args.providerPaymentId,
-  }).eq("subscription_id", args.subscriptionId).select("id").single();
-  if (result.error) throw new Error(`Mandate payment correlation failed: ${result.error.message}`);
+  }).eq("id", current.data.id);
+  update = current.data.provider_token_id
+    ? update.eq("provider_token_id", current.data.provider_token_id)
+    : update.is("provider_token_id", null);
+  update = current.data.provider_order_id
+    ? update.eq("provider_order_id", current.data.provider_order_id)
+    : update.is("provider_order_id", null);
+  update = current.data.provider_payment_id
+    ? update.eq("provider_payment_id", current.data.provider_payment_id)
+    : update.is("provider_payment_id", null);
+  const result = await update.select("id").maybeSingle();
+  if (result.error || !result.data) {
+    throw new Error(`Mandate payment correlation failed: ${result.error?.message ?? "Provider binding changed concurrently"}`);
+  }
 }
 
 export async function reprocessPendingTokenEvents(providerTokenId: string) {

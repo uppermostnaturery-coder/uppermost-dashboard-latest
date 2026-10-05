@@ -16,7 +16,7 @@
 - Validate quote token, binding, status, lifetime, and authoritative reprice. Never silently charge a changed quote.
 - Require durable `Idempotency-Key` handling on money-changing browser endpoints. Provider events and cycles must also be unique.
 - Use Razorpay Orders, Customers, UPI AutoPay mandates, and recurring tokens. Never introduce Razorpay Plans or Razorpay Subscriptions; Uppermost owns scheduling.
-- Do not fulfil until payment is final. A subscription is active only when the initial payment is captured and a usable recurring token exists.
+- Do not fulfil until payment is final. A subscription is active only when the initial `RECURRING_AUTH` payment is captured and the exactly correlated mandate is `ACTIVE` with a bound token. Positive mandate evidence is either standalone `token.confirmed` or a signed/verified payment whose embedded token has `recurring = true` and `recurring_details.status = confirmed`; token-ID presence alone is never sufficient. Duplicate and out-of-order provider events must converge without resetting `started_at`, moving `next_charge_at` twice, or creating duplicate cycles.
 - Return normalized states and centralized messages, not raw provider errors.
 - Never put secrets, full addresses, tokens, or sensitive identity data in provider notes or public experience responses.
 - Create Shiprocket shipments only after payment confirmation.

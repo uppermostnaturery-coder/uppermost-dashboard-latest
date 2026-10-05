@@ -5,7 +5,6 @@ import { commerceJson, errorResponse } from "@/lib/commerce/http";
 import {
   isRazorpayTokenEvent,
   processRazorpayTokenEvent,
-  reprocessPendingTokenEvents,
   type RazorpayTokenEntity,
 } from "@/lib/commerce/payments/mandates";
 import { reconcilePaymentAttempt } from "@/lib/commerce/payments/service";
@@ -84,8 +83,12 @@ export async function POST(request: Request) {
       if (!payment) throw new Error(`Razorpay ${eventType} event has no payment entity.`);
       const attempt = await findPaymentAttempt(payment);
       if (!attempt) throw new Error("PAYMENT_ATTEMPT_CORRELATION_PENDING");
-      await reconcilePaymentAttempt({ attempt, payment });
-      if (payment.token_id) await reprocessPendingTokenEvents(payment.token_id);
+      await reconcilePaymentAttempt({
+        attempt,
+        payment,
+        providerEventId,
+        providerEventCreatedAt: payload.created_at,
+      });
       await markPaymentWebhookProcessed(reservation.id, attempt.id);
     } else if (isRazorpayTokenEvent(eventType)) {
       if (!token) throw new Error(`Razorpay ${eventType} event has no token entity.`);

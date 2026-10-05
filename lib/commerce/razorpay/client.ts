@@ -56,8 +56,15 @@ export type RazorpayPayment = {
   status: string;
   amount: number;
   currency: string;
+  created_at?: number;
   customer_id?: string;
   token_id?: string;
+  token?: {
+    id?: string;
+    recurring?: boolean;
+    recurring_details?: { status?: string };
+    created_at?: number;
+  };
   method?: string;
   error_code?: string | null;
   error_description?: string | null;
