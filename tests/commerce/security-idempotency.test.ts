@@ -5,6 +5,7 @@ beforeAll(() => {
   process.env.COMMERCE_TOKEN_PEPPER = "test-pepper-with-sufficient-entropy";
   process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-role-key";
+  process.env.COMMERCE_CRON_SECRET = "test-cron-secret-long-value";
 });
 
 describe("quote and idempotency guards", () => {
@@ -45,5 +46,15 @@ describe("quote and idempotency guards", () => {
     const { isAboveMandateCap } = await import("../../lib/commerce/renewals");
     expect(isAboveMandateCap(1_000_001, 1_000_000)).toBe(true);
     expect(isAboveMandateCap(1_000_000, 1_000_000)).toBe(false);
+  });
+
+  it("requires the exact cron Bearer secret", async () => {
+    const { isAuthorizedCronRequest } = await import("../../lib/commerce/cron");
+    const request = (authorization?: string) => new Request("https://example.test/api/internal/cron/renewals", {
+      headers: authorization ? { authorization } : {},
+    });
+    expect(isAuthorizedCronRequest(request())).toBe(false);
+    expect(isAuthorizedCronRequest(request("Bearer wrong"))).toBe(false);
+    expect(isAuthorizedCronRequest(request("Bearer test-cron-secret-long-value"))).toBe(true);
   });
 });

@@ -82,7 +82,10 @@ export type NormalizedPaymentState =
   | "INSUFFICIENT_FUNDS"
   | "MANDATE_ACTION_REQUIRED"
   | "MANDATE_PAUSED"
+  | "MANDATE_REJECTED"
+  | "MANDATE_CANCELLED"
   | "MANDATE_EXPIRED"
+  | "REAUTH_REQUIRED"
   | "CAP_EXCEEDED"
   | "CUSTOMER_CANCELLED"
   | "QUOTE_CHANGED"
@@ -104,6 +107,8 @@ export type CustomerMessageKey =
   | "RENEWAL_FAILED"
   | "MANDATE_REAUTH_REQUIRED"
   | "MANDATE_PAUSED"
+  | "MANDATE_REJECTED"
+  | "MANDATE_CANCELLED"
   | "QUOTE_CHANGED";
 
 export type CommerceErrorCode =

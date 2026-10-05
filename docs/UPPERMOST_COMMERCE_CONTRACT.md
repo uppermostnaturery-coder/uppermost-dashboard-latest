@@ -103,7 +103,7 @@ Requires `Idempotency-Key`. Request:
 { "checkout_session_id": "uuid", "razorpay_payment_id": "pay_...", "razorpay_order_id": "order_...", "razorpay_signature": "64_hex_chars" }
 ```
 
-The server verifies HMAC, fetches the payment, and checks order, exact amount, and currency. Browser callback is not proof. Subscription is `CONFIRMED` only when payment is captured and recurring token is usable; otherwise it is `ACTIVATION_PENDING` or `PENDING`. Response uses checkout-status shape.
+The server verifies HMAC, fetches the payment, and checks order, existing payment identity, exact amount, and currency. Browser callback is not proof. Subscription is `CONFIRMED` only when payment is captured and the correlated recurring mandate is `ACTIVE`; token-ID presence alone is insufficient. Otherwise it is `ACTIVATION_PENDING` or `PENDING`. Response uses checkout-status shape.
 
 ## `GET /api/checkout/status?session_id=<uuid>`
 
@@ -131,16 +131,17 @@ Requires a Supabase bearer token linked to `customers.auth_user_id`. `GET` lists
 
 ## Provider and internal endpoints
 
-- `POST /api/webhooks/razorpay`: validates `X-Razorpay-Signature` over the raw body; deduplicates event ID/body hash; handles payment authorised/captured/failed and token/mandate status.
+- `POST /api/webhooks/razorpay`: validates `X-Razorpay-Signature` over the exact raw body; uses `x-razorpay-event-id` (raw-body hash fallback), durable retryable claiming, exact payment/order/amount/currency validation, and explicitly handles `payment.authorized`, `payment.captured`, `payment.failed`, `token.confirmed`, `token.rejected`, `token.cancelled`, and `token.paused`. Other signed events are persisted no-ops.
 - `POST /api/webhooks/carrier-events`: the Shiprocket-safe public webhook path. Configure Shiprocket with `https://uppermost-dashboard-latest-orcin.vercel.app/api/webhooks/carrier-events`, auth-token type `x-api-key`, and the server-only `SHIPROCKET_WEBHOOK_SECRET` as the token value. The handler rejects missing or invalid tokens and deduplicates tracking updates. `x-api-key` is authoritative when supplied. The legacy `X-Shiprocket-Webhook-Secret` header and bearer-secret form remain accepted for backward compatibility.
 - `POST /api/webhooks/shiprocket`: backward-compatible route to the same handler. Do not configure this path in Shiprocket because its webhook UI blocks URLs containing the provider name.
-- `POST /api/internal/renewals/run`: requires `Authorization: Bearer <COMMERCE_CRON_SECRET>`. It creates 24-hour pre-debit messages, atomically claims due cycles with `SKIP LOCKED`, prices subscription lines only, enforces mandate cap, creates one provider order/attempt, calls recurring payment, and advances only after capture.
+- `GET /api/internal/cron/renewals`: canonical Vercel Cron endpoint, currently daily at `0 0 * * *` for the connected Hobby plan. Requires `Authorization: Bearer <COMMERCE_CRON_SECRET>`. It atomically claims notification-due work, locks exact cycle items/current pricing, creates one Razorpay Order with pre-debit notification, then separately claims debit-due work and calls the recurring-payment API. Ambiguous results await reconciliation and `next_charge_at` advances only after capture.
+- `POST /api/internal/renewals/run`: backward-compatible bearer-protected alias to the same runner.
 
 ## States, messages, and errors
 
-Normalized states: `CHECKOUT_READY`, `AUTHORIZING`, `VERIFYING`, `CONFIRMED`, `ACTIVATION_PENDING`, `PENDING`, `FAILED_RETRYABLE`, `INSUFFICIENT_FUNDS`, `MANDATE_ACTION_REQUIRED`, `MANDATE_PAUSED`, `MANDATE_EXPIRED`, `CAP_EXCEEDED`, `CUSTOMER_CANCELLED`, `QUOTE_CHANGED`, `QUOTE_EXPIRED`, `SYSTEM_ERROR`.
+Normalized states: `CHECKOUT_READY`, `AUTHORIZING`, `VERIFYING`, `CONFIRMED`, `ACTIVATION_PENDING`, `PENDING`, `FAILED_RETRYABLE`, `INSUFFICIENT_FUNDS`, `MANDATE_ACTION_REQUIRED`, `MANDATE_PAUSED`, `MANDATE_REJECTED`, `MANDATE_CANCELLED`, `MANDATE_EXPIRED`, `CAP_EXCEEDED`, `CUSTOMER_CANCELLED`, `QUOTE_CHANGED`, `QUOTE_EXPIRED`, `SYSTEM_ERROR`.
 
-Message keys: `PAYMENT_CONFIRMING`, `PAYMENT_CONFIRMED`, `PAYMENT_PENDING`, `PAYMENT_FAILED`, `ORDER_PREPARING`, `ORDER_SHIPPED`, `IN_TRANSIT`, `OUT_FOR_DELIVERY`, `DELIVERED`, `RENEWAL_UPCOMING`, `RENEWAL_SUCCESS`, `RENEWAL_FAILED`, `MANDATE_REAUTH_REQUIRED`, `MANDATE_PAUSED`, `QUOTE_CHANGED`. DB templates override fallbacks.
+Message keys: `PAYMENT_CONFIRMING`, `PAYMENT_CONFIRMED`, `PAYMENT_PENDING`, `PAYMENT_FAILED`, `ORDER_PREPARING`, `ORDER_SHIPPED`, `IN_TRANSIT`, `OUT_FOR_DELIVERY`, `DELIVERED`, `RENEWAL_UPCOMING`, `RENEWAL_SUCCESS`, `RENEWAL_FAILED`, `MANDATE_REAUTH_REQUIRED`, `MANDATE_PAUSED`, `MANDATE_REJECTED`, `MANDATE_CANCELLED`, `QUOTE_CHANGED`. DB templates override fallbacks.
 
 Errors include: `VALIDATION_ERROR`, `ORIGIN_NOT_ALLOWED`, `RATE_LIMITED`, `UNKNOWN_SKU`, `SKU_UNAVAILABLE`, `INSUFFICIENT_INVENTORY`, `UNSERVICEABLE_PINCODE`, `INVALID_QUOTE`, `QUOTE_EXPIRED`, `QUOTE_CONSUMED`, `QUOTE_CHANGED`, `RECURRING_CONSENT_REQUIRED`, `IDEMPOTENCY_KEY_REQUIRED`, `IDEMPOTENCY_CONFLICT`, `REQUEST_IN_PROGRESS`, `INVALID_PAYMENT_SIGNATURE`, `PAYMENT_MISMATCH`, `AUTH_REQUIRED`, `AUTH_INVALID`, `SYSTEM_ERROR`.
 

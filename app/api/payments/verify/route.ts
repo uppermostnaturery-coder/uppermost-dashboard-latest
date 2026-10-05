@@ -13,6 +13,7 @@ import {
 } from "@/lib/commerce/http";
 import { beginIdempotentRequest, completeIdempotentRequest } from "@/lib/commerce/idempotency";
 import { reconcilePaymentAttempt } from "@/lib/commerce/payments/service";
+import { reprocessPendingTokenEvents } from "@/lib/commerce/payments/mandates";
 import { fetchRazorpayPayment } from "@/lib/commerce/razorpay/client";
 import { paymentVerifySchema } from "@/lib/commerce/schemas";
 import { getCheckoutStatus } from "@/lib/commerce/status";
@@ -63,6 +64,7 @@ export async function POST(request: Request) {
       throw new CommerceError("PAYMENT_MISMATCH", "Payment details do not match the checkout.", 409);
     }
     await reconcilePaymentAttempt({ attempt: attemptResult.data, payment });
+    if (payment.token_id) await reprocessPendingTokenEvents(payment.token_id);
     const body = await getCheckoutStatus(input.checkout_session_id);
     await completeIdempotentRequest({
       recordId,

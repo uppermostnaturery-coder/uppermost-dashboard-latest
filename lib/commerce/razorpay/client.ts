@@ -48,6 +48,7 @@ export type RazorpayOrder = {
   amount: number;
   currency: string;
   status: string;
+  receipt?: string;
 };
 export type RazorpayPayment = {
   id: string;
@@ -88,6 +89,10 @@ export async function createRazorpayOrder(input: {
     expire_at: number;
     frequency: "as_presented";
   };
+  notification?: {
+    token_id: string;
+    payment_after: number;
+  };
 }): Promise<RazorpayOrder> {
   const recurringFields = input.recurring
     ? {
@@ -103,6 +108,7 @@ export async function createRazorpayOrder(input: {
       currency: input.currency,
       receipt: input.receipt,
       notes: input.notes,
+      ...(input.notification ? { notification: input.notification } : {}),
       ...recurringFields,
     }),
   });
@@ -126,7 +132,12 @@ export async function createRazorpayRecurringPayment(input: {
 }): Promise<RazorpayPayment> {
   return razorpayRequest<RazorpayPayment>("/payments/create/recurring", {
     method: "POST",
-    body: JSON.stringify(input),
+    body: JSON.stringify({ ...input, recurring: true }),
   });
 }
 
+export async function fetchRazorpayOrderPayments(orderId: string): Promise<{ items: RazorpayPayment[] }> {
+  return razorpayRequest<{ items: RazorpayPayment[] }>(`/orders/${encodeURIComponent(orderId)}/payments`, {
+    method: "GET",
+  });
+}

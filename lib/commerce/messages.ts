@@ -25,6 +25,8 @@ export const MESSAGE_FALLBACKS: Record<CustomerMessageKey, Omit<CustomerMessage,
   RENEWAL_FAILED: { title: "Renewal needs attention", body: "We could not complete this renewal. No duplicate debit will be attempted while it is unresolved.", severity: "ERROR" },
   MANDATE_REAUTH_REQUIRED: { title: "Mandate update required", body: "The renewal amount is above your authorised mandate maximum. Please approve a new mandate.", severity: "WARNING", cta_label: "Update mandate" },
   MANDATE_PAUSED: { title: "Mandate paused", body: "Your recurring mandate is paused. Resume it before the next renewal.", severity: "WARNING", cta_label: "Review mandate" },
+  MANDATE_REJECTED: { title: "Mandate authorisation rejected", body: "Your recurring mandate was not authorised. Please approve a new mandate before renewal.", severity: "ERROR", cta_label: "Update mandate" },
+  MANDATE_CANCELLED: { title: "Mandate cancelled", body: "Your recurring mandate has been cancelled. Automatic renewals have stopped.", severity: "WARNING", cta_label: "Review subscription" },
   QUOTE_CHANGED: { title: "Order total updated", body: "Pricing or eligibility changed. Please review the refreshed order before paying.", severity: "WARNING", cta_label: "Review order" },
 };
 
@@ -89,6 +91,9 @@ export async function createCustomerMessage(args: {
     existing = args.shipmentId
       ? existing.eq("shipment_id", args.shipmentId)
       : existing.is("shipment_id", null);
+    existing = args.subscriptionId
+      ? existing.eq("subscription_id", args.subscriptionId)
+      : existing.is("subscription_id", null);
     const result = await existing.order("created_at", { ascending: true }).limit(1).maybeSingle();
     messageId = result.data?.id ?? null;
     if (result.error) console.error("Customer message lookup failed:", result.error);

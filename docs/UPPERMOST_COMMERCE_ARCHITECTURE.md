@@ -1,8 +1,8 @@
 # Uppermost® Commerce V1 — Architecture & Implementation Blueprint
 
-**Document status:** FROZEN BASELINE  
-**Version:** 1.2
-**Date:** 2 October 2026
+**Document status:** FROZEN PRODUCTION ARCHITECTURE
+**Version:** 1.3
+**Date:** 5 October 2026
 **Audience:** CXO / Product / Engineering / Framer / Operations / Growth  
 **Canonical repository path:** `docs/UPPERMOST_COMMERCE_ARCHITECTURE.md`
 
@@ -224,7 +224,8 @@ Release inventory is stored independently from physical/on-hand inventory. A rel
 | `POST /api/webhooks/carrier-events` | Shiprocket shipment/tracking updates; provider-safe public alias authenticated with `x-api-key` |
 | `GET /api/experience?token=` | safe customer-facing order/tracking/subscription data |
 | `GET/POST /api/customer/addresses` | saved Uppermost addresses |
-| internal protected renewal runner | due subscription cycles |
+| `GET /api/internal/cron/renewals` | bearer-protected renewal wake-up (daily on current Hobby plan) |
+| `POST /api/internal/renewals/run` | backward-compatible protected renewal-runner alias |
 
 ## Shiprocket Webhook Endpoint
 
@@ -246,22 +247,130 @@ URLs containing the provider name.
 
 It validates secure quote, re-prices, resolves/creates customer, snapshots address and items, creates an internal Uppermost order in `PAYMENT_PENDING`, then creates the relevant Razorpay order. The response contains only public checkout data.
 
+## Razorpay Live Production Architecture
+
+Uppermost does not use Razorpay Plans or Razorpay Subscriptions. Razorpay is the payment and mandate rail; the Uppermost database remains authoritative for subscription items, 15/30/60-day schedules, cycle pricing, retries, customer state, orders and fulfilment.
+
+### Exact supported webhook events
+
+The route explicitly dispatches only:
+
+- `payment.authorized`
+- `payment.captured`
+- `payment.failed`
+- `token.confirmed`
+- `token.rejected`
+- `token.cancelled`
+- `token.paused`
+
+`order.paid` and any other correctly signed event are acknowledged as persisted no-ops. `payment.captured` is the capture authority. Razorpay `subscription.*` events are intentionally unsupported and must not be enabled.
+
+The webhook reads `request.text()` exactly once and verifies `X-Razorpay-Signature` using HMAC-SHA256 and `RAZORPAY_WEBHOOK_SECRET` with timing-safe comparison before parsing JSON. `x-razorpay-event-id` is the durable identity; a raw-body SHA-256 hash is used only when that header is absent.
+
+### Durable webhook claiming and retries
+
+`claim_payment_webhook_event` atomically inserts or locks `(provider, provider_event_id)` and returns `CLAIMED`, `PROCESSED`, or `IN_PROGRESS`. States are `RECEIVED → PROCESSING → PROCESSED`; processing errors become `FAILED`. A provider redelivery can reclaim `FAILED` or stale `PROCESSING` work, while `PROCESSED` is an idempotent 200 and a live concurrent worker receives 202. This state lives in Postgres, not function memory.
+
+### Payment validation and monotonicity
+
+Before any reconciliation mutation, the service verifies the stored provider order ID, any already-bound provider payment ID, exact amount in paise, and currency. A mismatch is stored on the payment attempt and cannot confirm an order. `CAPTURED`/`CONFIRMED` are terminal against delayed authorized/failed events. DB uniqueness prevents duplicate provider orders/payment IDs, renewal payment attempts, orders, shipments, and customer messages.
+
+### Mandate/token correlation and state machine
+
+Recurring status is read from `payload.token.entity.recurring_details.status`; only the explicit allowlisted event name is used as a fallback for Razorpay token-confirmed payload variants that omit this field. Unknown or contradictory states fail processing and never become active.
+
+Correlation order is:
+
+1. existing `provider_token_id`;
+2. token `payment_id` → payment attempt → Uppermost order → subscription → mandate;
+3. token `order_id` through the same chain.
+
+The initial checkout persists Razorpay customer ID and order ID on the mandate. A captured payment binds payment ID and token ID. The handler never guesses from customer ID alone. If a token webhook arrives before it can be correlated, it remains `FAILED`; once the payment binds the token, stored failed events for that token are atomically reclaimed and replayed.
+
+Mandate transitions are centralized:
+
+| Current | confirmed/ACTIVE | paused | rejected | cancelled |
+|---|---|---|---|---|
+| PENDING | ACTIVE | PAUSED | REJECTED | CANCELLED |
+| ACTIVE | ACTIVE | PAUSED | ACTIVE | CANCELLED |
+| PAUSED | PAUSED | PAUSED | PAUSED | CANCELLED |
+| REJECTED | REJECTED | REJECTED | REJECTED | CANCELLED |
+| REAUTH_REQUIRED | REAUTH_REQUIRED | REAUTH_REQUIRED | REAUTH_REQUIRED | CANCELLED |
+| EXPIRED | EXPIRED | EXPIRED | EXPIRED | EXPIRED |
+| CANCELLED | CANCELLED | CANCELLED | CANCELLED | CANCELLED |
+
+An older event timestamp is ignored. `CANCELLED` and `EXPIRED` are terminal; `PAUSED` cannot be reactivated by a `token.confirmed` webhook.
+
+This is deliberate and follows Razorpay's Recurring Payments token contract:
+
+- [`token.rejected`](https://razorpay.com/docs/api/payments/recurring-payments/webhooks/#token-rejected) is emitted only when token creation/mandate registration fails before completion. It is not a valid later lifecycle transition for an already confirmed token. Therefore `ACTIVE + token.rejected` remains `ACTIVE`; stale events are additionally rejected by provider-event timestamp ordering.
+- [`token.confirmed`](https://razorpay.com/docs/api/payments/recurring-payments/webhooks/#token-confirmed) means the bank completed mandate registration. Razorpay does not document it as a UPI pause-resume event, so it cannot by itself prove that a currently paused mandate was resumed.
+- Razorpay's [UPI token-management API](https://razorpay.com/docs/api/payments/recurring-payments/upi/tokens/) documents fetch and cancel operations, but no merchant-side resume-token endpoint and no distinct resume webhook. Resumption must therefore occur through a Razorpay/provider-supported customer mandate-management channel, outside Uppermost's webhook handler.
+- Before Uppermost may move a locally `PAUSED` mandate back to `ACTIVE`, a server-only reconciliation flow must fetch the customer's current tokens from `GET /v1/customers/:customer_id/tokens`, match the exact stored `provider_token_id`, and verify `recurring = true` plus `recurring_details.status = confirmed`. That future reconciliation must use its own audited, atomic transition path; webhook `token.confirmed` processing remains monotonic and cannot perform the resume.
+
+### Initial recurring activation ordering
+
+Payment capture and token confirmation are independent prerequisites. Capture confirms the paid initial order but leaves checkout/subscription `ACTIVATION_PENDING` while the mandate is not `ACTIVE`. Token confirmation alone does not activate without a captured recurring-auth payment. Whichever event arrives second calls the same activation function; only then are the subscription and checkout set `ACTIVE`/`CONFIRMED` and cycle 2 created. Token ID presence alone is not proof of an active mandate.
+
 ## Renewal Sequence
 
 ```mermaid
 flowchart TD
-  D[Cycle due] --> L[Atomically claim cycle]
-  L --> C[Load subscription items only]
+  N[Notification due] --> NL[Atomically claim notification work]
+  NL --> C[Select exact active due items]
   C --> P[Reprice stage=RENEWAL]
   P --> M{{Total <= mandate max?}}
   M -->|No| R[REAUTH_REQUIRED + customer message]
-  M -->|Yes| O[Create Razorpay Order + pre-debit lifecycle]
-  O --> B[Recurring debit]
+  M -->|Yes| O[Lock price/item snapshot + one local order]
+  O --> RO[Create one Razorpay Order with notification token/payment_after]
+  RO --> W[NOTIFIED until scheduled_charge_at]
+  W --> DL[Atomically claim debit work]
+  DL --> B[POST /payments/create/recurring with recurring=true]
   B --> F{Final payment state}
   F -->|Success| S[Create fulfilment + Shiprocket shipment]
   F -->|Pending| W[Wait/reconcile; no duplicate debit]
   S --> N[Advance next_charge_at]
 ```
+
+### Subscription-cycle state machine
+
+`DUE → NOTIFICATION_PROCESSING → NOTIFIED → PROCESSING → PAYMENT_PENDING/PAID`. Unsafe or incomplete provider results become `RECONCILIATION_PENDING`; bounded, provably unsuccessful retries use `FAILED`; over-cap or unusable mandate becomes `REAUTH_REQUIRED`; inactive subscriptions become `CANCELLED`. Postgres claim functions use `FOR UPDATE SKIP LOCKED`.
+
+The price lock occurs during notification processing, before the Razorpay Order is created. The cycle stores the exact due-item snapshot, full authoritative pricing snapshot, amount, and `price_locked_at`. The debit uses that locked amount; it is never silently repriced between customer notification and charge.
+
+V1 supplies all active subscription items to the explicit cycle-pricing interface because one subscription has one schedule. Buy-once items never enter it. Current catalog price, active promotions, entitlements, grandfathering, pair/bundle composition, inventory and renewal cycle number are re-evaluated at lock time. The subscription benefit is eligible only from cycle 2 under promotion configuration.
+
+Razorpay Order creation passes a deterministic `rnl-<32 hex cycle UUID>` receipt and `notification: { token_id, payment_after }`. The debit later calls `POST /payments/create/recurring` with customer, token, order, amount, currency and `recurring: true`. Token values are server-only and never logged. One cycle has unique local order, payment attempt, provider order and at most one shipment.
+
+Provider timeout, reset, malformed response, or 5xx is ambiguous and becomes `RECONCILIATION_PENDING`; it is never blindly charged again. A bounded retry (maximum three attempts, 24h then 48h delay) is allowed only after a definite provider 4xx/failure. Before a retry, the service fetches `/orders/{id}/payments`; a captured payment is reconciled instead of retried. Insufficient funds and temporary failures may enter the bounded policy; mandate paused/rejected/cancelled/expired and cap failures require customer action.
+
+`subscriptions.next_charge_at` advances only after a verified captured cycle payment. The next due timestamp is the paid cycle's scheduled `due_at + interval_days` in UTC—not cron execution time—so failure/retry does not skip a cycle. The created next cycle receives its own notification and debit timestamps.
+
+Fulfilment occurs only after capture. Shiprocket reads the paid order's exact immutable pricing/item snapshot. `AUTHORIZED`, `PENDING`, `ACTIVATION_PENDING`, `FAILED`, `REAUTH_REQUIRED`, and ambiguous states cannot create a shipment.
+
+## Cron Architecture
+
+The currently connected Vercel Hobby project runs `GET /api/internal/cron/renewals` once daily at `0 0 * * *` (UTC), which is the highest frequency that plan permits. Cycles use a 50-hour notification lead so a daily invocation plus Hobby scheduling jitter still creates the Razorpay notification at least 24 hours before `payment_after`. The exact business due date remains stored in UTC; the debit can occur on the first daily invocation after it. Moving to Vercel Pro is recommended before meaningful subscription volume: then change the cron to hourly (`0 * * * *`) and the scheduler lead to 25 hours for tighter execution.
+
+Cron is only a wake-up signal; all claims and transitions are durable in Postgres. The route requires `Authorization: Bearer <COMMERCE_CRON_SECRET>`. Because Vercel injects the value of its specially named `CRON_SECRET`, Production must configure `CRON_SECRET` to the same secret value as `COMMERCE_CRON_SECRET`. Neither is exposed to Framer. The legacy protected `POST /api/internal/renewals/run` remains an alias.
+
+Each invocation claims finite batches for notification and debit independently, processes them, persists every transition, and exits. Concurrent invocations are safe through `SKIP LOCKED` plus unique constraints.
+
+## Product-Agnostic Subscription Architecture
+
+Payment and scheduling code has no Gir, Murrah, Ghee, or category dependency. It traverses subscription → explicit due items → catalog/pricing engine → cycle snapshot → payment attempt → order/fulfilment. Multiple SKUs, quantities greater than one, new categories, price changes and inactive products flow through the same boundaries. Product-specific rules live only in catalog, promotion, subscription eligibility and fulfilment metadata.
+
+## Future Multi-Schedule Subscriptions
+
+**CURRENT V1:** one customer subscription has one common `interval_days` of exactly 15, 30, or 60 UTC days; all active subscription items are selected by the scheduler for that schedule.
+
+**FUTURE:** one customer subscription may contain schedules/groups, for example Gir every 30 days, Mustard Oil every 15 days, and Honey every 60 days. A future `subscription_schedules` layer can choose the exact item subset and create a cycle for that due group. The payment architecture remains cycle-based and schedule-agnostic: pricing accepts explicit cycle items, mandate cap applies to that cycle amount, webhooks reconcile by payment attempt/cycle, and fulfilment reads exact paid cycle/order items. Razorpay integration does not need replacement. The remaining V1 schema coupling is that `subscription_cycles` currently keys cycle number by subscription and `subscriptions` owns `interval_days`; a future migration must add schedule identity to the cycle uniqueness key.
+
+## Production Environment and Deployment Sequence
+
+Server-only Vercel Production variables: `SUPABASE_SERVICE_ROLE_KEY`, `COMMERCE_TOKEN_PEPPER`, `COMMERCE_CRON_SECRET`, `CRON_SECRET` (same value for Vercel scheduling), `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, Shiprocket credentials/webhook secret, and optional Shopify Admin credentials when that adapter is used. Public/config variables: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `RAZORPAY_KEY_ID`, `RAZORPAY_API_BASE_URL=https://api.razorpay.com/v1`, commerce origin/inventory settings, pickup postcode/location and mandate/quote settings. Recurring tokens never enter environment variables or the browser.
+
+Deploy in this order: apply the database migration; configure Production variables; deploy Next.js; configure Razorpay Live webhook URL/events/secret; verify invalid and signed webhook requests; invoke unauthorized/authorized cron checks; run one low-value one-time test; run recurring authorization in both webhook orders; validate a notification-stage renewal, debit-stage capture, single order/message/shipment, and experience page.
 
 ## Customer Messaging
 

@@ -295,6 +295,14 @@ export async function prepareCheckout(input: PrepareInput, idempotencyKey: strin
     normalized_state: "CHECKOUT_READY",
   });
   if (attemptResult.error) throw new Error(`Payment attempt creation failed: ${attemptResult.error.message}`);
+  if (subscriptionId) {
+    const mandateCorrelation = await supabaseAdmin.from("recurring_mandates").update({
+      provider_order_id: remoteOrder.id,
+    }).eq("subscription_id", subscriptionId);
+    if (mandateCorrelation.error) {
+      throw new Error(`Mandate order correlation failed: ${mandateCorrelation.error.message}`);
+    }
+  }
   await Promise.all([
     supabaseAdmin.from("checkout_sessions").update({
       provider_order_id: remoteOrder.id,

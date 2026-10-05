@@ -2,13 +2,22 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { createCustomerMessage } from "../messages";
 import { ensureShipmentForOrder } from "../fulfillment";
 import type { RazorpayPayment } from "../razorpay/client";
+import { activateSubscriptionIfReady } from "../subscriptions/activation";
+import { addExactUtcDays, renewalScheduleForDueAt } from "../subscriptions/schedule";
+import { bindMandateTokenFromPayment } from "./mandates";
 import { normalizeRazorpayFailure } from "./states";
+import {
+  canApplyPaymentStatus,
+  normalizedStateForProviderStatus,
+  PaymentReconciliationMismatchError,
+  validateProviderPaymentIdentity,
+} from "./transitions";
 
 export function shouldIgnoreNonFinalPaymentUpdate(
   currentState: string,
   incomingPaymentStatus: string
 ): boolean {
-  return currentState === "CONFIRMED" && incomingPaymentStatus !== "captured";
+  return !canApplyPaymentStatus(currentState, incomingPaymentStatus);
 }
 
 export async function reconcilePaymentAttempt(args: {
@@ -16,13 +25,29 @@ export async function reconcilePaymentAttempt(args: {
   payment: RazorpayPayment;
 }) {
   const { attempt, payment } = args;
+  try {
+    validateProviderPaymentIdentity({
+      expectedProviderOrderId: attempt.provider_order_id,
+      existingProviderPaymentId: attempt.provider_payment_id,
+      expectedAmountPaise: attempt.amount_paise,
+      expectedCurrency: attempt.currency ?? "INR",
+      payment,
+    });
+  } catch (error) {
+    if (error instanceof PaymentReconciliationMismatchError) {
+      await supabaseAdmin.from("payment_attempts").update({
+        raw_error: { code: error.code, mismatches: error.mismatches },
+      }).eq("id", attempt.id);
+    }
+    throw error;
+  }
+
+  if (!canApplyPaymentStatus(attempt.status, payment.status) || !canApplyPaymentStatus(attempt.normalized_state, payment.status)) {
+    return { state: "CONFIRMED", ignored: true };
+  }
   const captured = payment.status === "captured";
   const pending = payment.status === "authorized" || payment.status === "created";
-  const normalized = captured
-    ? "CONFIRMED"
-    : pending
-      ? "PENDING"
-      : normalizeRazorpayFailure(payment);
+  const normalized = normalizedStateForProviderStatus(payment.status, normalizeRazorpayFailure(payment));
 
   let attemptUpdate = supabaseAdmin
     .from("payment_attempts")
@@ -73,54 +98,17 @@ export async function reconcilePaymentAttempt(args: {
       }
       sessionState = currentSession.data?.state ?? sessionState;
     } else if (attempt.kind === "RECURRING_AUTH") {
-      const mandateResult = order.subscription_id
-        ? await supabaseAdmin.from("recurring_mandates")
-            .select("provider_token_id, status")
-            .eq("subscription_id", order.subscription_id)
-            .maybeSingle()
-        : { data: null };
-      const tokenId = payment.token_id ?? mandateResult.data?.provider_token_id ?? null;
-      const tokenUsable = Boolean(tokenId) && (
-        Boolean(payment.token_id) || mandateResult.data?.status === "ACTIVE"
-      );
-      if (tokenUsable && order.subscription_id) {
-        const now = new Date();
-        const subscriptionResult = await supabaseAdmin
-          .from("subscriptions")
-          .select("interval_days, current_cycle_number")
-          .eq("id", order.subscription_id)
-          .single();
-        if (subscriptionResult.error || !subscriptionResult.data) {
-          throw new Error("Subscription for payment was not found.");
-        }
-        const nextChargeAt = new Date(
-          now.getTime() + subscriptionResult.data.interval_days * 86_400_000
-        ).toISOString();
-        const activationResults = await Promise.all([
-          supabaseAdmin.from("recurring_mandates").update({
-            provider_token_id: tokenId,
-            status: "ACTIVE",
-            authorised_at: now.toISOString(),
-            raw_metadata: payment,
-          }).eq("subscription_id", order.subscription_id),
-          supabaseAdmin.from("subscriptions").update({
-            status: "ACTIVE",
-            started_at: now.toISOString(),
-            next_charge_at: nextChargeAt,
-          }).eq("id", order.subscription_id),
-          supabaseAdmin.from("subscription_cycles").upsert({
-            subscription_id: order.subscription_id,
-            cycle_number: 2,
-            due_at: nextChargeAt,
-            status: "DUE",
-          }, { onConflict: "subscription_id,cycle_number", ignoreDuplicates: true }),
-        ]);
-        const activationError = activationResults.find((result) => result.error)?.error;
-        if (activationError) {
-          throw new Error(`Subscription activation failed: ${activationError.message}`);
-        }
-      } else {
-        sessionState = "ACTIVATION_PENDING";
+      if (order.subscription_id && payment.token_id && payment.order_id) {
+        await bindMandateTokenFromPayment({
+          subscriptionId: order.subscription_id,
+          providerTokenId: payment.token_id,
+          providerOrderId: payment.order_id,
+          providerPaymentId: payment.id,
+        });
+      }
+      if (order.subscription_id) {
+        const activation = await activateSubscriptionIfReady(order.subscription_id);
+        sessionState = activation.state;
       }
     }
 
@@ -143,7 +131,7 @@ export async function reconcilePaymentAttempt(args: {
     }
     if (attempt.subscription_cycle_id) {
       const cycleResult = await supabaseAdmin.from("subscription_cycles")
-        .select("subscription_id, cycle_number")
+        .select("subscription_id, cycle_number, due_at")
         .eq("id", attempt.subscription_cycle_id)
         .single();
       const cycleUpdate = await supabaseAdmin.from("subscription_cycles").update({
@@ -159,7 +147,8 @@ export async function reconcilePaymentAttempt(args: {
           .eq("id", cycleResult.data.subscription_id)
           .single();
         if (subResult.data) {
-          const nextDue = new Date(Date.now() + subResult.data.interval_days * 86_400_000).toISOString();
+          const nextDue = addExactUtcDays(cycleResult.data.due_at, subResult.data.interval_days);
+          const nextSchedule = renewalScheduleForDueAt(nextDue);
           const advancementResults = await Promise.all([
             supabaseAdmin.from("subscriptions").update({
               current_cycle_number: cycleResult.data.cycle_number,
@@ -169,6 +158,8 @@ export async function reconcilePaymentAttempt(args: {
               subscription_id: cycleResult.data.subscription_id,
               cycle_number: cycleResult.data.cycle_number + 1,
               due_at: nextDue,
+              notification_due_at: nextSchedule.notificationDueAt,
+              scheduled_charge_at: nextSchedule.scheduledChargeAt,
               status: "DUE",
             }, { onConflict: "subscription_id,cycle_number", ignoreDuplicates: true }),
           ]);
@@ -201,13 +192,62 @@ export async function reconcilePaymentAttempt(args: {
       throw new Error(`Checkout payment-state update failed: ${sessionUpdate.error.message}`);
     }
   }
+  if (attempt.subscription_cycle_id && pending) {
+    const cyclePending = await supabaseAdmin.from("subscription_cycles").update({
+      status: "PAYMENT_PENDING",
+      provider_payment_id: payment.id,
+    }).eq("id", attempt.subscription_cycle_id).neq("status", "PAID");
+    if (cyclePending.error) {
+      throw new Error(`Subscription cycle pending-state update failed: ${cyclePending.error.message}`);
+    }
+  }
   if (attempt.subscription_cycle_id && !pending) {
+    const retryable = normalized === "FAILED_RETRYABLE" || normalized === "INSUFFICIENT_FUNDS";
+    const currentCycle = await supabaseAdmin.from("subscription_cycles")
+      .select("retry_count")
+      .eq("id", attempt.subscription_cycle_id)
+      .single();
+    if (currentCycle.error || !currentCycle.data) {
+      throw new Error(`Subscription cycle retry lookup failed: ${currentCycle.error?.message}`);
+    }
+    const retryCount = Number(currentCycle.data.retry_count ?? 0) + 1;
+    const nextRetryAt = retryable && retryCount < 3
+      ? new Date(Date.now() + Math.pow(2, retryCount - 1) * 24 * 60 * 60 * 1000).toISOString()
+      : null;
     const cycleUpdate = await supabaseAdmin.from("subscription_cycles").update({
-      status: "FAILED",
+      status: retryable && retryCount < 3 ? "FAILED" : "REAUTH_REQUIRED",
+      retry_count: retryCount,
+      next_retry_at: nextRetryAt,
       last_error: { normalized_state: normalized },
-    }).eq("id", attempt.subscription_cycle_id);
+    }).eq("id", attempt.subscription_cycle_id).neq("status", "PAID");
     if (cycleUpdate.error) {
       throw new Error(`Subscription cycle failure update failed: ${cycleUpdate.error.message}`);
+    }
+    if (order.subscription_id && normalized.startsWith("MANDATE_")) {
+      const subscriptionStatus = normalized === "MANDATE_PAUSED"
+        ? "PAUSED"
+        : normalized === "MANDATE_CANCELLED"
+          ? "CANCELLED"
+          : "REAUTH_REQUIRED";
+      const mandateStatus = normalized === "MANDATE_ACTION_REQUIRED"
+        ? "REAUTH_REQUIRED"
+        : normalized.replace("MANDATE_", "");
+      await Promise.all([
+        supabaseAdmin.from("subscriptions").update({ status: subscriptionStatus }).eq("id", order.subscription_id),
+        supabaseAdmin.from("recurring_mandates").update({ status: mandateStatus }).eq("subscription_id", order.subscription_id),
+      ]);
+      const messageKey = normalized === "MANDATE_PAUSED"
+        ? "MANDATE_PAUSED"
+        : normalized === "MANDATE_CANCELLED"
+          ? "MANDATE_CANCELLED"
+          : normalized === "MANDATE_REJECTED"
+            ? "MANDATE_REJECTED"
+            : "MANDATE_REAUTH_REQUIRED";
+      await createCustomerMessage({
+        customerId: order.customer_id,
+        key: messageKey,
+        subscriptionId: order.subscription_id,
+      });
     }
   }
   if (!pending) {

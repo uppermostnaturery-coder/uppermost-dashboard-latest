@@ -79,4 +79,33 @@ describe("commerce pricing", () => {
     expect(calculateMandateMaxAmount(1_250_000, 700_000, 250_000)).toBe(1_250_000);
     expect(calculateMandateMaxAmount(700_000, 800_000, 250_000)).toBe(1_050_000);
   });
+
+  it("prices non-Ghee, multi-category subscription items and quantity > 1 generically", () => {
+    const genericCatalog: CatalogVariant[] = [
+      { ...catalog[0], id: "oil-v", product_id: "oil-p", product_code: "MUSTARD_OIL", product_name: "Mustard Oil", product_family: "OIL", sku: "MUSTARD-1000", price_paise: 40_000 },
+      { ...catalog[1], id: "honey-v", product_id: "honey-p", product_code: "HONEY", product_name: "Honey", product_family: "HONEY", sku: "HONEY-500", price_paise: 30_000 },
+    ];
+    const result = calculateCartQuote({
+      items: [
+        { line_id: "oil", sku: "MUSTARD-1000", qty: 2, purchase_mode: "SUBSCRIPTION", interval_days: 15 },
+        { line_id: "honey", sku: "HONEY-500", qty: 1, purchase_mode: "SUBSCRIPTION", interval_days: 15 },
+      ],
+      catalog: genericCatalog,
+      promotions: [],
+      context: { stage: "RENEWAL", cycle_number: 2, now: "2026-10-05T00:00:00.000Z" },
+    });
+    expect(result.total_paise).toBe(110_000);
+    expect(result.items.map((item) => item.product_code)).toEqual(["MUSTARD_OIL", "HONEY"]);
+  });
+
+  it("uses the current catalog price rather than the initial-cycle price", () => {
+    const changedCatalog = catalog.map((item) => item.sku === "GIR-1000" ? { ...item, price_paise: 800_000 } : item);
+    const result = calculateCartQuote({
+      items: [line("GIR-1000", "SUBSCRIPTION")],
+      catalog: changedCatalog,
+      promotions: [],
+      context: { stage: "RENEWAL", cycle_number: 3, now: "2026-10-05T00:00:00.000Z" },
+    });
+    expect(result.total_paise).toBe(800_000);
+  });
 });

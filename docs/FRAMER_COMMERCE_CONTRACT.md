@@ -930,7 +930,7 @@ Captured one-time payment:
 }
 ```
 
-Captured subscription authorization whose recurring token has not become usable yet:
+Captured subscription authorization whose correlated recurring mandate has not reached `ACTIVE` yet:
 
 ```json
 {
@@ -1047,7 +1047,10 @@ FAILED_RETRYABLE
 INSUFFICIENT_FUNDS
 MANDATE_ACTION_REQUIRED
 MANDATE_PAUSED
+MANDATE_REJECTED
+MANDATE_CANCELLED
 MANDATE_EXPIRED
+REAUTH_REQUIRED
 CAP_EXCEEDED
 CUSTOMER_CANCELLED
 QUOTE_CHANGED
@@ -1297,7 +1300,7 @@ Implemented launch-window example:
 - Projected recurring total: `700000` paise.
 - Default mandate maximum: `max(700000, 700000 + 250000) = 950000` paise.
 - Prepare uses `payment_kind: RECURRING_AUTH`, returns Razorpay customer ID and Uppermost subscription UUID, and requires accepted recurring consent.
-- `CONFIRMED` requires captured payment plus a usable recurring token. Captured payment without the usable token is `ACTIVATION_PENDING`.
+- `CONFIRMED` requires captured payment plus a correlated recurring mandate in `ACTIVE`. Token-ID presence alone is not sufficient; capture without active mandate is `ACTIVATION_PENDING`.
 
 ## 13. Framer integration sequence
 
@@ -1366,7 +1369,7 @@ Aligned behavior:
 - Prepare reprices and returns a fresh quote instead of silently changing the charge.
 - Money-changing browser endpoints are durable/idempotent.
 - Fulfillment starts only on captured payment.
-- Subscription activation requires captured payment and a usable token; otherwise `ACTIVATION_PENDING`.
+- Subscription activation requires captured payment and a correlated `ACTIVE` mandate; otherwise `ACTIVATION_PENDING`.
 - Provider secrets and raw provider errors are not returned.
 - Experience lookup uses a high-entropy token and does not expose full address, email, payment token, or mandate token.
 
@@ -1384,7 +1387,7 @@ Implemented drift or narrower behavior:
 10. **Public quote shape exposes internal catalog/promotion UUIDs and physical dimensions/weight.** These are not secrets, but this is broader than the minimal customer-facing data described by the architecture.
 11. **Shipping provider rate is discarded.** The Shiprocket adapter selects a courier by freight cost but currently returns `shipping_amount_paise: 0`; free shipping is also modeled as a promotion. This matches the current free-shipping offer but is narrower than general paid-shipping support.
 12. **Not every declared normalized state is currently written to checkout sessions by the six inspected routes.** The union/message mapping includes all architecture states, while prepare/verify/webhook paths directly produce only a subset. Renewal-only states are handled outside this frontend checkout flow.
-13. **The frozen must-pass matrix is only partially automated.** Existing tests cover pricing combinations, promotion timing/eligibility, quote validation helpers, idempotency resolution, duplicate webhook decision, renewal claim gating, and mandate-cap comparison. They do not route-test the exact JSON/CORS contracts, Shiprocket-unavailable flow, pending-to-late-success reconciliation, provider webhooks end to end, or cross-order experience-token isolation.
+13. **The frozen must-pass matrix is still not a live-provider integration suite.** Automated tests cover pricing combinations, promotion timing/eligibility, quote validation, idempotency, all explicit Razorpay webhook dispatches, raw-body HMAC rejection, retry persistence, monotonic payment/mandate helpers, exact-day renewal scheduling, explicit cycle items, mandate cap boundaries, and Shiprocket webhook authentication. Live Razorpay/Shiprocket delivery, cross-order experience-token isolation, and full database concurrency remain production/staging validation items.
 14. **Prepare failure recovery is stricter than the architecture text explains.** Once an idempotency record has started, even an unexpected `500` is stored as completed and replayed for that key. A checkout row created before a later provider failure can also make the quote unusable through the one-checkout-per-quote constraint.
 
 These drift findings describe the implementation as of 25 September 2026. The public catalog endpoint and its documented schema were added together; existing checkout contracts were not changed.
