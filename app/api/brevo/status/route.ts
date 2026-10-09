@@ -1,3 +1,4 @@
+import { requireAdmin, adminErrorResponse } from "@/lib/admin/auth";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
@@ -315,6 +316,7 @@ function getEventsByEmail(payload: unknown) {
 }
 
 export async function GET(request: Request) {
+  try { await requireAdmin(request); } catch (error) { return adminErrorResponse(error); }
   try {
     const { page, perPage, searchQuery, days } = parsePaginationParams(new URL(request.url));
     const rangeStartDate = getRangeStart(days);

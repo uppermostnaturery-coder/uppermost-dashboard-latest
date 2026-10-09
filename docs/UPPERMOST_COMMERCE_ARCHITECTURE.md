@@ -1,8 +1,8 @@
 # Uppermost® Commerce V1 — Architecture & Implementation Blueprint
 
 **Document status:** FROZEN PRODUCTION ARCHITECTURE
-**Version:** 1.4
-**Date:** 5 October 2026
+**Version:** 1.5
+**Date:** 7 October 2026
 **Audience:** CXO / Product / Engineering / Framer / Operations / Growth  
 **Canonical repository path:** `docs/UPPERMOST_COMMERCE_ARCHITECTURE.md`
 
@@ -544,6 +544,37 @@ General first-time deployment order: apply unapplied database migrations; config
 For the 5 October 2026 embedded-token reconciliation deployment, the operator confirms the hardening migration is already applied. Verify migration history and deploy the code; no new migration accompanies that fix.
 
 ## Customer Messaging
+
+### Approved downstream communication extension (7 October 2026)
+
+Operator-only Communications and Offers screens are hosted in this repository;
+Framer continues to own customer-facing commerce UI. Supabase Auth verifies
+operators and server-owned ADMIN/VIEWER membership authorizes administration.
+Guest checkout and financial/provider state machines retain their contracts.
+
+The existing `integration_outbox` carries durable communication events and work.
+QStash is asynchronous HTTP transport to Vercel, never the sole intent record.
+Exception-isolated narrow event capture and bounded recovery must not roll back
+valid financial transitions. External communication providers are never awaited
+by checkout, payment, mandate or shipment communication hooks.
+
+Rules read incremental `communication_customer_features` and visitor behavior
+projections, not repeated historical order/payment/analytics joins. Events inspect
+one subject; scheduled audiences use bounded indexed keyset pages and immutable
+run snapshots. Existing `customer_messages`/`message_deliveries` remain canonical
+message/delivery records, extended with immutable content versions and provider
+approval artifacts. Communications cannot mutate pricing or business state.
+
+Optional checkout visitor/session headers are analytics context only: they do
+not enter the checkout body schema, request hash, quote fingerprint or provider
+payment payload. Shared-browser links preserve historical validity periods;
+checkout declarations are identified, not cryptographically verified.
+
+The approved tracker migration moves only first-party Supabase ingestion to a
+bounded server API. GA4 and Clarity remain independent destinations using the
+same tracker-owned browser identity. Anonymous analytics permissions are revoked
+only after the ingestion API and external GTM update are live and validated.
+See `UPPERMOST_COMMUNICATION_SPEC.md` and the implementation plan for scope.
 
 Three dedicated layers:
 

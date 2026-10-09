@@ -4,6 +4,20 @@ Use this file to choose the correct source before changing or integrating commer
 
 For AI coding-tool setup and workflow selection after a fresh checkout, see [`AI_ASSISTANT_SKILLS.md`](AI_ASSISTANT_SKILLS.md).
 
+## Communications, identity and operations
+
+- [Implementation report and staged rollout](UPPERMOST_COMMUNICATION_IMPLEMENTATION_REPORT.md)
+- [Repository/live-schema audit](UPPERMOST_COMMUNICATION_AUDIT.md)
+- [Engine, rules, QStash and OTP](UPPERMOST_COMMUNICATION_ENGINE.md)
+- [Customer identity and support journey](UPPERMOST_CUSTOMER_IDENTITY.md)
+- [Analytics ingestion/security rollout](UPPERMOST_ANALYTICS_ARCHITECTURE.md)
+- [Derived features and query plans](UPPERMOST_ANALYTICS_READ_MODEL.md)
+- [Canonical templates and provider approval](UPPERMOST_COMMUNICATION_TEMPLATES.md)
+- [Offers administration](UPPERMOST_ADMIN_OFFERS.md)
+- [Exact external GTM patch](UPPERMOST_GTM_ANALYTICS.md)
+- [Exact external Framer headers](UPPERMOST_FRAMER_INTEGRATION.md)
+- [Clarity and GA4 integration](UPPERMOST_CLARITY_GA4_INTEGRATION.md)
+
 ## Authority order
 
 1. `UPPERMOST_COMMERCE_ARCHITECTURE.md` — frozen architecture and business/state-machine source of truth. Update this first before any architecture-level behavior change.

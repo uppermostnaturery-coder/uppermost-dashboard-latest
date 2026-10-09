@@ -1,0 +1,30 @@
+.shell { color:var(--text,#e7e4e0); padding:8px 0 32px; font-size:14px; }
+.shell h1 { font-size:26px; letter-spacing:-.5px; margin:0 0 8px; }
+.shell h2 { font-size:18px; margin:0 0 16px; }
+.shell p { color:var(--muted,#aaa); line-height:1.6; }
+.tabs,.toolbar { display:flex; gap:8px; flex-wrap:wrap; margin:20px 0; align-items:center; }
+.shell button { border:1px solid #565057; background:var(--surface,#252229); color:inherit; border-radius:6px; padding:10px 14px; min-height:44px; cursor:pointer; }
+.shell button:disabled { opacity:.55; cursor:not-allowed; }
+.shell button[aria-selected=true],.primary { border-color:var(--accent,#9c8efa)!important; background:#393147!important; }
+.shell :is(button,input,select,textarea):focus-visible { outline:2px solid #b3a7ff; outline-offset:3px; }
+.panel { background:var(--surface,#201e24); border:1px solid #49434b; border-radius:8px; padding:20px; margin:16px 0; }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; }
+.field { display:grid; gap:8px; color:var(--text,#eee); min-width:0; }
+.shell :is(input,select,textarea) { width:100%; box-sizing:border-box; border:1px solid #625b65; background:#18161b; color:inherit; border-radius:4px; padding:11px; min-height:44px; font:inherit; }
+.shell textarea { min-height:120px; resize:vertical; }
+.shell input[type=checkbox] { width:20px; height:20px; min-height:20px; margin-right:8px; }
+.tableWrap { overflow-x:auto; border:1px solid #49434b; border-radius:6px; }
+.shell table { border-collapse:collapse; text-align:left; width:100%; }
+.shell th { background:#28242c; white-space:nowrap; font-size:12px; }
+.shell :is(th,td) { padding:12px; border-bottom:1px solid #403b43; vertical-align:top; }
+.shell td { min-width:95px; }
+.badge { display:inline-block; padding:4px 7px; background:#38323e; border:1px solid #5f5767; border-radius:4px; font-size:11px; white-space:nowrap; }
+.success { color:#b3e0c4; border-color:#52836a; }
+.warning { color:#f2d097; border-color:#916e3e; }
+.error { color:#f4aaaa; border-color:#925b5b; }
+.notice { padding:12px 16px; background:#29242f; border-left:3px solid #b3a7ff; margin:12px 0; }
+.metric { font-size:30px; font-weight:600; }
+.small { font-size:12px; color:var(--muted,#bbb); }
+.condition { border-left:2px solid #62576b; padding:10px 0 10px 14px; margin:8px 0; }
+.preview { width:100%; min-height:400px; border:1px solid #615a65; background:white; }
+@media(max-width:640px) { .panel{padding:14px;} .grid{grid-template-columns:1fr;} .shell h1{font-size:23px;} }

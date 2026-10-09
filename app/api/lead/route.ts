@@ -1,3 +1,5 @@
+import { legacyWhatsAppWelcome } from "@/lib/whatsapp/legacy";
+import { isAllowedTestDestination } from '@/lib/communications/preferences';
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { upsertBrevoContact } from "../../../lib/brevo/contacts";
@@ -28,6 +30,9 @@ type IntentConfig = {
 };
 
 type LeadRequestBody = {
+  captureType?: unknown;
+  sourceReference?: unknown;
+  campaignReference?: unknown;
   firstName?: unknown;
   lastName?: unknown;
   email?: unknown;
@@ -116,6 +121,7 @@ type LemlistLead = {
 };
 
 type LemlistSyncStatus =
+  | "dry_run"
   | "added"
   | "updated"
   | "switched"
@@ -654,7 +660,13 @@ function normalizeLeadInput(
     referrer: cleanText(body.referrer, 1000),
     landingPage: cleanText(body.landingPage, 1000),
     device: cleanText(body.device, 50),
-    metadata: asRecord(body.metadata),
+    metadata: {
+      ...(process.env.COMMUNICATION_DRY_RUN==='true'?{communication_mode:'DRY_RUN'}:{}),
+      ...asRecord(body.metadata),
+      ...(body.captureType !== undefined ? { capture_type: cleanText(body.captureType, 64) } : {}),
+      ...(body.sourceReference !== undefined ? { source_reference: cleanText(body.sourceReference, 200) } : {}),
+      ...(body.campaignReference !== undefined ? { campaign_reference: cleanText(body.campaignReference, 200) } : {}),
+    },
     submissionKey: buildSubmissionKey(
       request,
       sessionId,
@@ -1461,6 +1473,7 @@ async function syncLeadToLemlist(
   const effectiveConsent = input.marketingConsent.provided
     ? input.marketingConsent.value
     : previousLead?.consent_email === true;
+  if(effectiveConsent&&process.env.COMMUNICATION_DRY_RUN==='true'&&!isAllowedTestDestination('LEMLIST',input.email))return {status:'dry_run',campaignId:null,previousCampaignId:null,message:'DRY_RUN: Lemlist enrollment suppressed.'};
 
   if (!process.env.LEMLIST_API_KEY) {
     return {
@@ -1654,6 +1667,7 @@ async function syncLeadToLemlist(
 // "Uppermost — Launch Waitlist" list after a successful lead capture.
 // -----------------------------------------------------------------------------
 type BrevoSyncResult =
+  | {status:'dry_run';listId:null;message:string}
   | {
       status: "synced";
       listId: number;
@@ -1681,6 +1695,7 @@ async function syncLeadToBrevo(
     humanFollowupRequired?: boolean | null;
   }
 ): Promise<BrevoSyncResult> {
+  if(process.env.COMMUNICATION_DRY_RUN==='true'&&!isAllowedTestDestination('EMAIL',input.email))return {status:'dry_run',listId:null,message:'DRY_RUN: Brevo contact automation suppressed.'};
   try {
     const { BREVO_MARKETING_LIST_ID } = getBrevoServerEnv();
     const listId = Number(BREVO_MARKETING_LIST_ID);
@@ -1751,6 +1766,7 @@ async function syncLeadToBrevo(
 }
 
 type BrevoWelcomeEmailResult =
+  | {status:'dry_run';message:string}
   | {
       status: "sent";
       templateId: number;
@@ -1776,6 +1792,7 @@ async function sendBrevoWelcomeEmail(
     marketingConsent: boolean;
   }
 ): Promise<BrevoWelcomeEmailResult> {
+  if(process.env.COMMUNICATION_DRY_RUN==='true'&&!isAllowedTestDestination('EMAIL',input.email))return {status:'dry_run',message:'DRY_RUN: Welcome email suppressed.'};
   try {
     if (input.stage !== "completed") {
       return {
@@ -2102,7 +2119,7 @@ export async function POST(request: Request) {
       input.stage === "completed" &&
       Boolean(lead.phone ?? input.phone) &&
       input.consentWhatsApp.value === true
-        ? await fetch(new URL("/api/whatsapp/send", request.url), {
+        ? await legacyWhatsAppWelcome(new Request(new URL("/api/whatsapp/send", request.url), {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -2112,7 +2129,7 @@ export async function POST(request: Request) {
               leadId: lead.id,
               email: lead.email,
             }),
-          })
+          }))
             .then(async (response) => {
               const data = await response.json().catch(() => null);
 
@@ -2203,3 +2220,4 @@ export async function POST(request: Request) {
     );
   }
 }
+

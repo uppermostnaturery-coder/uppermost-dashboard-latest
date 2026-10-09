@@ -1,3 +1,4 @@
+import { requireAdmin, adminErrorResponse } from "@/lib/admin/auth";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -148,6 +149,7 @@ function total(values: CampaignStats[], field: keyof CampaignStats): number {
 }
 
 export async function GET(request: Request) {
+  try { await requireAdmin(request); } catch (error) { return adminErrorResponse(error); }
   try {
     const rangeDays = requestedRangeDays(request);
     const campaignIds = configuredCampaignIds();

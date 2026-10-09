@@ -14,6 +14,7 @@ import {
 import { publicQuoteShape } from "./apiShape";
 import { createRazorpayCustomer, createRazorpayOrder } from "./razorpay/client";
 import type { CartLineInput, CartQuote } from "./types";
+import { bestEffortIdentityLink, type AnalyticsContext } from "../analytics/identity";
 
 type PrepareInput = {
   guest_session_id: string;
@@ -115,7 +116,7 @@ async function insertOrderSnapshot(args: {
   return { order, orderItems: orderItems ?? [] };
 }
 
-export async function prepareCheckout(input: PrepareInput, idempotencyKey: string) {
+export async function prepareCheckout(input: PrepareInput, idempotencyKey: string, analyticsContext?: AnalyticsContext) {
   const stored = await loadQuote(input.quote_id);
   assertValidQuote(validateQuoteRecord({
     quote: stored,
@@ -171,6 +172,7 @@ export async function prepareCheckout(input: PrepareInput, idempotencyKey: strin
   }
 
   const customer = await resolveOrCreateCustomer(input.customer);
+  if (analyticsContext) await bestEffortIdentityLink({ ...analyticsContext, customerId: customer.id });
   const addressId = await saveCustomerAddress({
     customerId: customer.id,
     customerName: input.customer.name,

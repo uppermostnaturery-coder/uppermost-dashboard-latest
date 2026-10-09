@@ -28,7 +28,7 @@ export function commerceCorsHeaders(
   const headers: Record<string, string> = {
     "Access-Control-Allow-Methods": methods,
     "Access-Control-Allow-Headers":
-      "Content-Type, Idempotency-Key, Authorization, X-Customer-Token, X-Shiprocket-Webhook-Secret",
+      "Content-Type, Idempotency-Key, Authorization, X-Customer-Token, X-Shiprocket-Webhook-Secret, X-Uppermost-Visitor-Id, X-Uppermost-Session-Id",
     "Access-Control-Max-Age": "86400",
     "Cache-Control": "no-store",
     "X-Content-Type-Options": "nosniff",

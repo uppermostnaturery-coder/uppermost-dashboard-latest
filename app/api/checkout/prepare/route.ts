@@ -15,6 +15,7 @@ import {
   completeIdempotentRequest,
 } from "@/lib/commerce/idempotency";
 import { checkoutPrepareSchema } from "@/lib/commerce/schemas";
+import { validateAnalyticsId } from "@/lib/analytics/identity";
 
 export const runtime = "nodejs";
 
@@ -37,7 +38,11 @@ export async function POST(request: Request) {
     });
     if (decision.kind === "REPLAY") return commerceJson(decision.body, decision.status, origin);
     recordId = decision.recordId;
-    const body = await prepareCheckout(input, key);
+    // Analytics headers are excluded from the authoritative body hash and quote/pricing binding.
+    const body = await prepareCheckout(input, key, {
+      visitorId: validateAnalyticsId(request.headers.get("x-uppermost-visitor-id"), "v_"),
+      sessionId: validateAnalyticsId(request.headers.get("x-uppermost-session-id"), "s_"),
+    });
     await completeIdempotentRequest({
       recordId,
       status: 201,

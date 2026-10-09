@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { recordProviderEvent } from "@/lib/communications/webhooks";
 
 function normalizeEvent(event: string) {
   if (event === "request") return "sent";
@@ -117,6 +118,10 @@ export async function POST(request: Request) {
       );
     }
 
+    // Legacy analytics stays authoritative; downstream communication reconciliation is isolated.
+    const deliveryStatus: Record<string,string> = { request:'SENT',delivered:'DELIVERED',opened:'OPENED',unique_opened:'OPENED',click:'CLICKED',hard_bounce:'FAILED_PERMANENT',unsubscribed:'UNSUBSCRIBED',blocked:'FAILED_PERMANENT' };
+    const state=deliveryStatus[String(payload?.event)];
+    if(state) await recordProviderEvent('BREVO',String(payload?.['message-id']||payload?.message_id||''),state,getEventTimestamp(payload),payload?.email).catch(()=>console.warn('brevo_communication_projection_failed'));
     return NextResponse.json({
       success: true,
     });

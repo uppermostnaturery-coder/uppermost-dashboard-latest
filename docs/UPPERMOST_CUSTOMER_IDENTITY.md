@@ -1,0 +1,17 @@
+# Customer identity and journey
+
+The GTM tracker owns existing `uppermost_visitor_id` and `uppermost_session_id`, including 30-minute inactivity rotation. Framer reads the active accessor, falling back to localStorage, and never creates another visitor ID. Exact external patches are in [GTM](UPPERMOST_GTM_ANALYTICS.md) and [Framer](UPPERMOST_FRAMER_INTEGRATION.md).
+
+Checkout reads optional `X-Uppermost-Visitor-Id` and `X-Uppermost-Session-Id` headers. Prefixes, UUIDs and the tracker's existing `id-<timestamp>-<random>` fallback are validated with an 80-character ceiling; malformed values are ignored. They remain separate request context, outside checkout schemas, `requestHash(input)`, quote fingerprints and pricing/payment decisions. The existing customer is resolved once. Identity linking follows that resolution, has a 750-ms database abort deadline, and logs a safe warning on failure without failing checkout.
+
+`analytics_identity_links` is server-only. A visitor may have many historical customer links but one current link; a customer may have many visitors. Linking takes a short browser-scoped advisory lock: create if absent, update last-seen if unchanged, otherwise close the old validity interval and insert a new one. It never rewrites earlier identity history or locks orders.
+
+Checkout contact information provides IDENTIFIED confidence, not verified possession. Browser IDs are observations and cannot authenticate a customer. This V1 OTP endpoint does not yet upgrade links to VERIFIED or issue a customer session. No verified-contact column was found in the audited lead/customer schema, so automatic verified lead conversion is deliberately disabled.
+
+On a shared-device switch, old product/cart/checkout/friction facts are cleared from the visitor projection before it attaches to the next customer. Ingestion serializes with linking; a delayed event preceding the current link remains historical but does not update the current customer's behavioral features. Anonymous behavior before a first identification can inform that first browser profile; it is not verified customer activity.
+
+`GET /api/admin/analytics?customer_id=<uuid>&source=identity` returns 50 links with `next_link_cursor`. Other sources provide paginated analytics by linked visitor/validity interval, orders, subscriptions and communications. Payments/shipments require an owned order ID. Analytics accepts an explicit `link_id` scoped to the customer and visitor; validity intervals are half-open, excluding the old link's closing timestamp. Event pages return `next_cursor: {before, before_id}` and sort by timestamp plus immutable ID to preserve equal-time records. Analytics confidence is IDENTIFIED_BROWSER or VERIFIED_SESSION only when corresponding verified evidence exists. Historical lead matching and inferred pre-identification timeline expansion are not enabled.
+
+Communications > Providers includes a customer journey support view. It merges bounded order/subscription/message pages chronologically, lets an operator load each browser interval, and loads payments/shipments for a selected owned order. Each source advances independently. It is an operator-only support view and is never executed during rule evaluation.
+
+Clarity uses visitor/session IDs only, with no contact data or customer UUID. GA4 and Clarity retain their independent tags and destinations; proprietary Clarity behavioral signals are not assumed available to this backend. See [Clarity/GA4 handoff](UPPERMOST_CLARITY_GA4_INTEGRATION.md).

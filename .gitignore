@@ -7,3 +7,5 @@ node_modules/
 tsconfig.tsbuildinfo
 .vercel
 .env*
+!.env.local.example
+supabase/.temp/

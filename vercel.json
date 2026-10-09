@@ -3,6 +3,10 @@
     {
       "path": "/api/internal/cron/renewals",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/internal/cron/communications",
+      "schedule": "10 0 * * *"
     }
   ]
 }

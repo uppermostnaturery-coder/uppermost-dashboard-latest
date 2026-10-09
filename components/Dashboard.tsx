@@ -27,6 +27,8 @@ import {
 
 import LemlistAnalytics from "./LemlistAnalytics";
 import BrevoAnalytics from "./BrevoAnalytics";
+import Communications from "./operations/Communications";
+import Offers from "./operations/Offers";
 import { supabase } from "@/lib/supabase";
 
 // Local range helpers (restore previous behavior before the global cutoff)
@@ -97,7 +99,7 @@ import { FiMoreHorizontal, FiGlobe } from "react-icons/fi";
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Filler, Tooltip, Legend);
 
 // ─── Types ───────────────────────────────────
-type Page = "overview" | "realtime" | "funnel" | "pages" | "visitors" | "events" | "sources" | "scrolldepth" | "lemlist" | "metaAds" | "brevo" |"graphs"; 
+type Page = "overview" | "realtime" | "funnel" | "pages" | "visitors" | "events" | "sources" | "scrolldepth" | "lemlist" | "metaAds" | "brevo" |"graphs" | "communications" | "offers";
 
 interface Metrics {
   visitors: number;
@@ -3872,6 +3874,8 @@ const buyNowChartData = {
   ["brevo", "Brevo", null],
   ["metaAds", "Meta Ads", Infinity],
   ["graphs", "Special Graphs", BarChart3],
+  ["communications", "Communications", MessageCircle],
+  ["offers", "Offers", Heart],
 ] as [Page, string, any][]).map(([page, label, Icon]) => (
     <div key={page} onClick={() => setActivePage(page)} style={{
               display: "flex", alignItems: "center", gap: 10, padding: "8px 18px",
@@ -3993,6 +3997,8 @@ const buyNowChartData = {
         {/* Content */}
         <div style={{ flex: 1, width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 18 }}>
 {/* — LEMLIST — */}
+{activePage === "communications" && <Communications />}
+{activePage === "offers" && <Offers />}
 {activePage === "lemlist" && (
   <>
     <div

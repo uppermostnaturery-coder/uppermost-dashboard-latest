@@ -1,0 +1,3 @@
+import { metaWebhook,verifyMetaSignature } from '@/lib/communications/webhooks';
+export async function GET(request:Request){const p=new URL(request.url).searchParams;const token=process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN;if(token&&p.get('hub.mode')==='subscribe'&&p.get('hub.verify_token')===token)return new Response(p.get('hub.challenge'));return new Response('Unauthorized',{status:401});}
+export async function POST(request:Request){const body=await request.text();if(body.length>131072||!verifyMetaSignature(body,request.headers.get('x-hub-signature-256')))return new Response('Unauthorized',{status:401});try{await metaWebhook(JSON.parse(body));return Response.json({ok:true});}catch{return Response.json({error:'WEBHOOK_UNAVAILABLE'},{status:503});}}
