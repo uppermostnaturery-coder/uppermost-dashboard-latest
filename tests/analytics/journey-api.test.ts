@@ -38,7 +38,7 @@ beforeEach(() => {
     db.fail = "";
     db.writes = [];
     db.tables = {
-        orders: [{ id: "order-private", order_number: "UPM-001", customer_id: "customer-private", checkout_session_id: checkout, status: "CONFIRMED", order_kind: "INITIAL", paid_at: "2026-10-19T15:00:00Z", created_at: "2026-10-19T14:58:00Z", total_paise: 700000, address_snapshot: { line1: "579D Secret Street", postal_code: "122001", city: "Gurgaon", state: "Haryana" } }],
+        orders: [{ id: "order-private", order_number: "UPM-001", customer_id: "customer-private", checkout_session_id: checkout, status: "CONFIRMED", order_kind: "INITIAL", paid_at: "2026-10-19T15:00:00Z", created_at: "2026-10-19T14:58:00Z", total_paise: 700000, subtotal_paise:750000,discount_paise:50000,shipping_paise:0,tax_paise:0,address_snapshot: { line1: "579D Secret Street", postal_code: "122001", city: "Gurgaon", state: "Haryana" } }],
         customers: [{ id: "customer-private", name: "Ankur Secret", email: "ankur.secret@example.com", phone: "+919999996461" }],
         checkout_sessions: [{ id: checkout, guest_session_id: "gs_expected_123", customer_id: "customer-private", experience_token: "exp_private" }],
         order_items: [{ id: "item-private", order_id: "order-private", product_name: "Gir Ghee", variant_name: "1 L", quantity: 1, purchase_mode: "BUY_ONCE", line_total_paise: 700000 }],
@@ -55,6 +55,7 @@ describe("public order and journey API boundaries", () => {
         expect(body.orders[0].reference).toBe("UPM-001");
         expect(body.orders[0].visitor_ids).toEqual([visitor]);
         expect(body.orders[0].recorded_visits).toBe(2);
+        expect(body.orders[0].pricing).toEqual({subtotal_paise:750000,discount_paise:50000,shipping_paise:0,tax_paise:0});
         const text = JSON.stringify(body);
         for (const secret of ["Ankur Secret", "ankur.secret@example.com", "+919999996461", "579D Secret Street", "122001", checkout, "exp_private", "customer-private", "order-private"])
             expect(text).not.toContain(secret);

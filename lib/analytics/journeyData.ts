@@ -19,7 +19,7 @@ type Session = {
     session_id: string;
     visitor_id: string;
 };
-const orderColumns = "id,order_number,customer_id,checkout_session_id,paid_at,total_paise,order_kind,address_snapshot,created_at";
+const orderColumns = "id,order_number,customer_id,checkout_session_id,paid_at,total_paise,subtotal_paise,discount_paise,shipping_paise,tax_paise,order_kind,address_snapshot,created_at";
 async function check<T>(result: {
     data: T | null;
     error: unknown;

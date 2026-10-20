@@ -83,7 +83,7 @@ NODE_PATH=../uppermost-framer-website/test-harness/node_modules node tests/analy
 
 It intercepts analytics, advertising, lead and database HTTP requests. It uses the local Next.js page and installed Google Chrome; no real orders or payments are created.
 
-## Confirmed orders and visitor journeys — production release candidate
+## Confirmed orders and visitor journeys — 21 October 2026 release
 
 User approved production main deployment/publication on 21 October 2026, including the remaining summary-status correction. `OrderHighlights` makes the all-time confirmed count and latest paid amount/reference/time visible even when Today has no sale. The Orders & Journeys navigation opens masked order cards and browser histories. Public fields follow the explicit user choice: masked name/email/phone, city/state; full street/postcode/contact and all private checkout/customer/token fields remain server-only.
 
@@ -105,3 +105,7 @@ Order/journey checks cover the all-time highlight, masked detail, historical flo
 Vercel tools became available, but the connection returns 403 for team `uppermostnaturery-coders-projects` (`team_NxHcdb7IGiOReXEyg6m9hUrB`). Reauthorize that team's app access to inspect logs; GitHub-driven production deployment remains available. Do not claim the historical screenshot or Ankur incident was correlated to Vercel runtime logs.
 
 Pre-release validation completed: 115 backend tests, TypeScript, and production build passed with dummy local credentials. Both committed dashboard browser regressions passed; order/journey flow passed at 375px and 1440px with no runtime errors. All eight frontend checkout browser scenarios and the focused frontend TypeScript check passed. Static review findings were addressed before release. No test placed an order, captured a payment or triggered fulfilment.
+
+Live smoke check for code `1a2c5a7`: order overview returned 200 with one confirmed ₹7,000 order, masked contact and Gurgaon/Haryana, one observed browser and seven retained tracker sessions. Item snapshot value is ₹7,500 while paid total is ₹7,000 due to a stored ₹500 order-level discount. Order cards therefore show the authoritative subtotal/discount/shipping/tax breakdown rather than inferring adjustments or changing pricing. The per-item snapshot remains unchanged.
+
+Production verification: backend feature `1a2c5a7` deployed successfully through main. The historical browser API returned 200, seven retained tracker sessions, 24 flow entries beginning before payment, one authoritative confirmation and no private IDs/tokens/contact/address fields. Invalid identity POST returned 400 without a write. Framer production version `a34c8f735` publishes FE source `526d3cc`; readback matches, typecheck is clean, and the live bundle contains the analytics bridge plus navigation recovery. The final pricing-display patch adds stored order-level adjustments and passes the same 115 tests, typecheck/build and mobile/desktop browser verification.
