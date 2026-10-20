@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
+import { supabase } from "@/lib/supabase";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { dashboardWindow, summarizeDashboard, type AnalyticsEvent, type CheckoutFact, type OrderFact, type VisitorFact, type SessionFact, type GraphGroup } from "@/lib/analytics/summary";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Production analytics tables grant SELECT to anon, not service_role. Reuse
+// the public analytics client for those reads; commerce remains admin-only.
 // Read-only dashboard projection. No customer details, tokens, provider payloads,
 // or order identifiers are sent to the browser, and no commerce row is changed.
-async function readAll<T>(table: string, columns: string, dateColumn: string, since: string, until: string): Promise<T[]> {
+async function readAll<T>(client: typeof supabaseAdmin, table: string, columns: string, dateColumn: string, since: string, until: string): Promise<T[]> {
     const result: T[] = [];
     for (let offset = 0; offset < 100000; offset += 1000) {
-        const { data, error } = await supabaseAdmin.from(table).select(columns).gte(dateColumn, since).lte(dateColumn, until).order(dateColumn, { ascending: true }).order("id", { ascending: true }).range(offset, offset + 999);
+        const { data, error } = await client.from(table).select(columns).gte(dateColumn, since).lte(dateColumn, until).order(dateColumn, { ascending: true }).order("id", { ascending: true }).range(offset, offset + 999);
         if (error)
             throw new Error(`Dashboard ${table} read failed`);
         result.push(...(data || []) as unknown as T[]);
@@ -24,14 +27,14 @@ export async function GET(request: Request) {
     const now = new Date(), window = dashboardWindow(days, now);
     try {
         const [events, checkouts, orders] = await Promise.all([
-            readAll<AnalyticsEvent>("analytics_events", "id,event_name,page_path,visitor_id,session_id,metadata,created_at", "created_at", window.since, window.until),
-            readAll<CheckoutFact>("checkout_sessions", "id,created_at", "created_at", window.since, window.until),
-            readAll<OrderFact>("orders", "id,status,paid_at,total_paise,order_kind", "paid_at", window.since, window.until),
+            readAll<AnalyticsEvent>(supabase, "analytics_events", "id,event_name,page_path,visitor_id,session_id,metadata,created_at", "created_at", window.since, window.until),
+            readAll<CheckoutFact>(supabaseAdmin, "checkout_sessions", "id,created_at", "created_at", window.since, window.until),
+            readAll<OrderFact>(supabaseAdmin, "orders", "id,status,paid_at,total_paise,order_kind", "paid_at", window.since, window.until),
         ]);
         const visitorIds = [...new Set(events.map(e => e.visitor_id).filter((v): v is string => !!v))];
         const visitors: VisitorFact[] = [];
         for (let from = 0; from < visitorIds.length; from += 100) {
-            const { data, error } = await supabaseAdmin.from("analytics_visitors").select("visitor_id,first_seen_at").in("visitor_id", visitorIds.slice(from, from + 100));
+            const { data, error } = await supabase.from("analytics_visitors").select("visitor_id,first_seen_at").in("visitor_id", visitorIds.slice(from, from + 100));
             if (error)
                 throw new Error("Dashboard visitor read failed");
             visitors.push(...(data || []));
@@ -39,7 +42,7 @@ export async function GET(request: Request) {
         const sessionIds = [...new Set(events.map(e => e.session_id).filter((v): v is string => !!v))];
         const sessions: SessionFact[] = [];
         for (let from = 0; from < sessionIds.length; from += 100) {
-            const { data, error } = await supabaseAdmin.from("analytics_sessions").select("session_id,device_type,browser,os,utm_source,utm_medium,utm_campaign,referrer").in("session_id", sessionIds.slice(from, from + 100));
+            const { data, error } = await supabase.from("analytics_sessions").select("session_id,device_type,browser,os,utm_source,utm_medium,utm_campaign,referrer").in("session_id", sessionIds.slice(from, from + 100));
             if (error)
                 throw new Error("Dashboard session read failed");
             sessions.push(...(data || []));
