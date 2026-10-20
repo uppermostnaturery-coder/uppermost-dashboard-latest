@@ -27,6 +27,7 @@ import {
   X,
 } from "lucide-react";
 
+import OrderJourneys, {OrderHighlights} from "./OrderJourneys";
 import LemlistAnalytics from "./LemlistAnalytics";
 import BrevoAnalytics from "./BrevoAnalytics";
 import { supabase } from "@/lib/supabase";
@@ -62,7 +63,7 @@ import { FiMoreHorizontal, FiGlobe } from "react-icons/fi";
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Filler, Tooltip, Legend);
 
 // ─── Types ───────────────────────────────────
-type Page = "overview" | "realtime" | "funnel" | "pages" | "visitors" | "events" | "sources" | "scrolldepth" | "lemlist" | "metaAds" | "brevo" |"graphs"; 
+type Page = "commerce" | "overview" | "realtime" | "funnel" | "pages" | "visitors" | "events" | "sources" | "scrolldepth" | "lemlist" | "metaAds" | "brevo" |"graphs";
 
 interface Metrics {
   visitors: number;
@@ -2262,6 +2263,7 @@ const buyNowChartData = {
           {([
          
   ["overview", "Overview", Home],
+  ["commerce", "Orders & Journeys", Bookmark],
   ["realtime", "Real-Time", Activity],
   ["visitors", "Visitors", Users],
   ["funnel", "Funnel", Funnel],
@@ -2337,7 +2339,7 @@ const buyNowChartData = {
         <div className="dashboard-topbar" style={{ padding: "14px 24px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--bg2)" }}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <button className="dashboard-menu" aria-label={mobileMenuOpen?"Close navigation":"Open navigation"} aria-expanded={mobileMenuOpen} aria-controls="dashboard-navigation" onClick={()=>setMobileMenuOpen(open=>!open)}>{mobileMenuOpen?<X size={22}/>:<Menu size={22}/>}</button>
-            <div><div style={{ fontSize: 17, fontWeight: 600, letterSpacing: "-0.01em" }}>Analytics Overview</div>
+            <div><div style={{ fontSize: 17, fontWeight: 600, letterSpacing: "-0.01em" }}>{activePage === "commerce" ? "Orders & visitor journeys" : "Analytics Overview"}</div>
             <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>uppermost.store — Live tracking dashboard</div></div>
           </div>
           <div className="dashboard-toolbar" style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -3668,7 +3670,9 @@ const buyNowChartData = {
   </>
 )}
           {/* ══ OVERVIEW ══ */}
+          {activePage === "commerce" && <OrderJourneys days={range}/>}
           {activePage === "overview" && <>
+            <OrderHighlights onOpen={()=>setActivePage("commerce")}/>
             <details style={{fontSize:12,lineHeight:1.6,color:"var(--muted)"}}><summary style={{cursor:"pointer",minHeight:32}}>How these metrics are counted</summary><p>All activity uses the selected IST range; 48H is rolling. New/returning visitors use first-seen history (unknown history is unclassified). Order intent counts supported buttons, not purchases. Prepared checkouts count server sessions created in range. Confirmed sales count paid orders by paid time, including renewals. Browser tracking can be incomplete.</p></details>
    
        <div className="dashboard-metrics-grid"

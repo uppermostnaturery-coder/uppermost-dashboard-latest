@@ -522,3 +522,12 @@ export type CommerceApiResponse =
   | PaymentVerifyResponse
   | CheckoutStatusResponse
   | ExperienceResponse;
+
+/** Optional fire-and-forget analytics. Never await before Razorpay launch. No PII. */
+export interface AnalyticsCheckoutIdentityRequest {
+  checkout_session_id: string;
+  guest_session_id: string;
+  visitor_id: string;
+  session_id: string;
+}
+export interface AnalyticsCheckoutIdentitySuccess { ok: true }

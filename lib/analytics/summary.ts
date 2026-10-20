@@ -46,7 +46,7 @@ export function dashboardWindow(days: number, now = new Date()) {
     return { since: new Date(days === 2 ? now.getTime() - 2 * DAY : midnight - (days - 1) * DAY).toISOString(), until: now.toISOString() };
 }
 export function safePath(path: string | null) { return (path || "/").split(/[?#]/)[0]; }
-function label(event: AnalyticsEvent) { return (event.metadata?.text || "").replace(/\s+/g, " ").trim().toLowerCase(); }
+function label(event: AnalyticsEvent) { return (typeof event.metadata?.text === "string" ? event.metadata.text : "").replace(/\s+/g, " ").trim().toLowerCase(); }
 function identity(event: AnalyticsEvent) { return event.visitor_id || (event.session_id ? `session:${event.session_id}` : `event:${event.id}`); }
 /** Only paired, different trackers are merged. Rapid repeated same-tracker actions survive. */
 export function deduplicateEvents(events: AnalyticsEvent[]) {

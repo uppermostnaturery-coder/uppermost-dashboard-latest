@@ -34,3 +34,7 @@ AI coding-tool onboarding and skill routing are documented in `docs/AI_ASSISTANT
 - Database changes require an ordered migration in `supabase/migrations`.
 - Add focused tests for pricing, quote security, idempotency, webhook deduplication, and renewals.
 - Run `npm run typecheck`, `npm test`, and `npm run build` before handoff. Run lint where configuration supports it.
+
+## Commit history clarity
+
+User instruction, 21 October 2026: write descriptive commit subjects and bodies so future engineers and AI can recover why a change was made. Record the concrete problem/trigger, reasoning and tradeoff, behavior changed, affected flows, relevant compatibility/security boundaries, and validation. Do not use vague subjects such as “fix bugs” or silently rewrite published commit history.

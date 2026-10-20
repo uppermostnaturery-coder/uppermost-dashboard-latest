@@ -1,7 +1,7 @@
 # Uppermost® Commerce V1 — Architecture & Implementation Blueprint
 
 **Document status:** FROZEN PRODUCTION ARCHITECTURE
-**Version:** 1.5 (checkout recovery release verified 21 October 2026)
+**Version:** 1.6 (masked order and visitor analytics)
 **Date:** 21 October 2026
 **Audience:** CXO / Product / Engineering / Framer / Operations / Growth  
 **Canonical repository path:** `docs/UPPERMOST_COMMERCE_ARCHITECTURE.md`
@@ -583,6 +583,16 @@ Money should be stored as integer paise wherever practical.
 - Use high-entropy public experience tokens; never authorize tracking from sequential order number alone.
 - Snapshot checkout address and commercial terms for audit/reconciliation.
 - Apply RLS to exposed Supabase tables and keep sensitive payment/mandate records server-only.
+
+## Order and visitor analytics — public masked projection
+
+Approved 21 October 2026: production analytics remains public while authentication is developed separately on staging. Public order/journey responses expose order reference, paid amount/time, items, masked name/email/phone and city/state only. Full names, full contact details, street address, postcode, customer/checkout IDs, experience tokens and provider payloads remain server-only. No staging code/settings are changed.
+
+`GET /api/analytics/journeys` provides all-time confirmed-order highlights independent of the selected activity window, the latest 50 confirmed paid orders, up to 100 recently active anonymous visitors, and a paged chronological timeline for one visitor. Historical confirmation events are paginated independently of the latest-50 order-card limit. Recorded visits mean distinct tracker session IDs, not verified people or a guaranteed new visit after 30 minutes. Session totals cover retained session history; the timeline defaults to all retained history and can be filtered to 7/30/90 IST calendar days. Tracking gaps and unlinked orders are labelled.
+
+Checkout `gs_…` identity and analytics `v_…` identity are different. `POST /api/analytics/identity` is separate best-effort telemetry after successful prepare: it verifies checkout ID plus guest binding and an existing matching analytics session/visitor pair, then inserts an immutable checkout/customer/browser association in `analytics_customer_links`. This table is RLS-enabled, inaccessible to anon/authenticated roles and readable/insertable only by the server service role. No personal details are sent in this telemetry request. Missing tracking or failed telemetry never blocks Razorpay launch, changes a quote, confirms payment or mutates commerce state. First association wins; retries do not overwrite attribution.
+
+For pre-existing orders only, exact production `/experience?t=` observations can associate a browser with an order's stored token. Tokens are compared on the server and never returned. This is labelled an observed order-journey browser, not proof that the browser belongs to the payer; shared links/devices can produce multiple associations. Earlier events on that same visitor ID remain anonymous records and are presented together without rewriting them. No identity is guessed from IP, geography, name, timing proximity or device fingerprint. Attribution is analytics evidence, never an authorization or payment/fulfilment authority.
 
 ## Authentication Roadmap
 

@@ -69,9 +69,9 @@ Production smoke-check correction: initial deployment returned 503 because analy
 
 Verified production code release: `0f90eda`, Vercel deployment `2DWD1oqMFvwi64pn2p6EFrMAaah8`. Live 30-day snapshot at verification: 462 visitors, 1,119 recorded sessions, 1,835 deduplicated page views, 13 prepared checkouts, one confirmed initial order and ₹7,000 paid revenue. Figures change as activity arrives. Today and 30-day APIs returned 200 with graph/card totals consistent and chronological funnel counts monotonic. Production HTML contained the responsive shell and updated funnel. This smoke check does not create a checkout/payment or establish the cause of the historical customer incident. Runtime logs remain unreviewed pending Vercel connection.
 
-## Dashboard summary status — local candidate, 21 October 2026
+## Dashboard summary status — included in approved production release, 21 October 2026
 
-A customer screenshot showed a failed summary with all-zero summary cards and a green Connected badge. The badge only checked the public tracker database and could succeed while the server summary failed. Zeroes were initial React values, not evidence of no activity. This presentation defect is reproduced with an injected 503 and corrected locally on `fix/dashboard-summary-status`: loading/error/readiness now follows the summary request, summary metrics and sidebar totals display `—` until a successful snapshot for the selected range, and a failed refresh explicitly labels the previous successful snapshot. The tracker connection is separate tooltip information. Query definitions and commerce behavior are unchanged; no architecture/API change or migration is required. Vercel production deployment of this additional UI correction awaits user approval.
+A customer screenshot showed a failed summary with all-zero summary cards and a green Connected badge. The badge only checked the public tracker database and could succeed while the server summary failed. Zeroes were initial React values, not evidence of no activity. This presentation defect is reproduced with an injected 503 and corrected locally on `fix/dashboard-summary-status`: loading/error/readiness now follows the summary request, summary metrics and sidebar totals display `—` until a successful snapshot for the selected range, and a failed refresh explicitly labels the previous successful snapshot. The tracker connection is separate tooltip information. Query definitions and commerce behavior are unchanged; no architecture/API change or migration is required. The user authorized this remaining correction together with the order/journey production release. Verify the main deployment revision for release completion.
 
 Current production investigation: five consecutive Today/hour API calls succeeded, and a fresh production browser session plus three refreshes received 200 summaries with no runtime error or banner. The screenshot's individual failed request has not been correlated to a runtime log, so do not claim its exact cause is proven. The earlier analytics service-role grant mismatch is independently established and already corrected. Vercel is now confirmed installed, but its runtime-log tools are not exposed to this running session; do not request reinstallation or claim logs were read.
 
@@ -82,3 +82,26 @@ NODE_PATH=../uppermost-framer-website/test-harness/node_modules node tests/analy
 ```
 
 It intercepts analytics, advertising, lead and database HTTP requests. It uses the local Next.js page and installed Google Chrome; no real orders or payments are created.
+
+## Confirmed orders and visitor journeys — production release candidate
+
+User approved production main deployment/publication on 21 October 2026, including the remaining summary-status correction. `OrderHighlights` makes the all-time confirmed count and latest paid amount/reference/time visible even when Today has no sale. The Orders & Journeys navigation opens masked order cards and browser histories. Public fields follow the explicit user choice: masked name/email/phone, city/state; full street/postcode/contact and all private checkout/customer/token fields remain server-only.
+
+Orders are CONFIRMED with a non-null paid_at. Cards show the latest 50, while per-browser confirmation events are queried across retained history and paged with the rest of the timeline. Browser lists show at most 100 recently active tracker IDs within the selected dashboard range. Timeline defaults to all retained history and offers 7/30/90-day filters. Session counts are retained tracker session records, not verified people or a guaranteed count of physical visits. Heartbeats/scroll noise are omitted from this reading view; stored events are unchanged.
+
+The existing gs_ checkout identifier is not the v_ tracker ID. The new private analytics_customer_links table records an immutable checkout/customer/browser association after prepare, validated against the guest binding and matching analytics session. This is a separate nonblocking POST: failed, blocked or never-returning analytics cannot delay Razorpay. Legacy historical linking compares exact production experience URLs to stored tokens on the server. The explicit page_url is authoritative; a nonproduction URL cannot be overridden by a relative path. Attribution is scoped to the exact checkout and never guessed from IP, name, device or geography. A later abandoned checkout does not create an earlier purchase in its browser timeline. Shared link/device associations remain explicitly unverified.
+
+Migration `20261020200325_link_checkout_analytics_visitors.sql` was applied only to live project `obnxzdicpvsptuttffot`. Readback verified RLS on; anon/authenticated SELECT false; service SELECT/INSERT true and UPDATE/DELETE false. No existing commerce state was changed. An RLS-enabled/no-policy advisor notice on this table is intentional: public roles have no access and the service role bypasses RLS. Staging projects, branches and auth were untouched.
+
+Reproducible browser regressions use the existing FE harness dependencies, installed Chrome, a local Next server on port 3123 with dummy Supabase credentials, and intercepted APIs:
+
+```sh
+NODE_PATH=../uppermost-framer-website/test-harness/node_modules node tests/analytics/order-journeys.browser.cjs
+NODE_PATH=../uppermost-framer-website/test-harness/node_modules node tests/analytics/summary-status.browser.cjs
+```
+
+Order/journey checks cover the all-time highlight, masked detail, historical flow, visitor navigation, runtime errors and 375/1440px layout. FE navigation suite now has eight scenarios, including analytics 503 and a never-resolving telemetry request while payment still launches and redirect succeeds. API tests cover privacy, exact-token/production-origin matching, old anonymous events, >1000 event rows, >50 older order confirmations, guest/session mismatch, immutable replay, and attribution-error count preservation.
+
+Vercel tools became available, but the connection returns 403 for team `uppermostnaturery-coders-projects` (`team_NxHcdb7IGiOReXEyg6m9hUrB`). Reauthorize that team's app access to inspect logs; GitHub-driven production deployment remains available. Do not claim the historical screenshot or Ankur incident was correlated to Vercel runtime logs.
+
+Pre-release validation completed: 115 backend tests, TypeScript, and production build passed with dummy local credentials. Both committed dashboard browser regressions passed; order/journey flow passed at 375px and 1440px with no runtime errors. All eight frontend checkout browser scenarios and the focused frontend TypeScript check passed. Static review findings were addressed before release. No test placed an order, captured a payment or triggered fulfilment.
