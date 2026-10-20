@@ -1535,6 +1535,10 @@ type GraphGroupBy = "auto" | "hour" | "day" | "week" | "month";
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const analyticsRequest = useRef(0);
+  const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [analyticsRange, setAnalyticsRange] = useState<number | null>(null);
+  const summaryAvailable = analyticsRange === range;
+  const summaryStatus = analyticsError ? "Analytics unavailable" : analyticsLoading ? "Loading analytics…" : summaryAvailable ? "Analytics ready" : "Analytics unavailable";
   const [connected, setConnected]   = useState<boolean | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [filterEvent, setFilterEvent] = useState("all");
@@ -1559,6 +1563,7 @@ type GraphGroupBy = "auto" | "hour" | "day" | "week" | "month";
   checkouts: 0,
   purchases: 0,
 });
+  const summaryMetric = (key: keyof Metrics): number | string => summaryAvailable ? metrics[key] : "—";
 const [metaAdsData, setMetaAdsData] = useState<any>(null);
 const [metaAdsLoading, setMetaAdsLoading] = useState(false);
 const [metaAdsError, setMetaAdsError] = useState<string | null>(null);
@@ -1643,12 +1648,15 @@ const loadBrevoLeads = useCallback(async () => {
   // Cards, graphs, pages and funnel use one bounded snapshot and one definition.
   const loadDashboardAnalytics = useCallback(async () => {
     const request=++analyticsRequest.current;
+    setAnalyticsLoading(true);
+    setAnalyticsError(null);
     try {
       const response=await fetch(`/api/analytics/dashboard?days=${range}&group=${resolvedGraphGroupBy}`,{cache:"no-store"});
       if(!response.ok)throw new Error("Analytics could not be loaded. Retry or choose a shorter range.");
       const data:DashboardSummary=await response.json();
       if(request!==analyticsRequest.current)return;
       setAnalyticsError(null);
+      setAnalyticsRange(range);
       setMetrics(prev=>({...data.metrics,online:prev.online}));
       setSidebarStats(prev=>({...prev,visitors:data.metrics.visitors,sessions:data.metrics.sessions,events:data.metrics.events}));
       setProductViews(data.productViews);
@@ -1660,6 +1668,7 @@ const loadBrevoLeads = useCallback(async () => {
       setDevices(data.dimensions.devices);setBrowsers(data.dimensions.browsers);setOsData(data.dimensions.os);
       setSources({sources:data.dimensions.sources,mediums:data.dimensions.mediums,campaigns:data.dimensions.campaigns,referrers:data.dimensions.referrers});
     }catch(error){if(request===analyticsRequest.current)setAnalyticsError(error instanceof Error?error.message:"Analytics unavailable");}
+    finally {if(request===analyticsRequest.current)setAnalyticsLoading(false);}
   }, [range,resolvedGraphGroupBy]);
   const pvHeading = (() => {
     switch (range) {
@@ -2309,9 +2318,9 @@ const buyNowChartData = {
           </div>
           {[
             ["Online Now", sidebarStats.online],
-            ["Visitors", sidebarStats.visitors],
-            ["Sessions", sidebarStats.sessions],
-            ["Events", sidebarStats.events],
+            ["Visitors", summaryAvailable ? sidebarStats.visitors : "—"],
+            ["Sessions", summaryAvailable ? sidebarStats.sessions : "—"],
+            ["Events", summaryAvailable ? sidebarStats.events : "—"],
           ].map(([label, val]) => (
             <div key={String(label)} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0" }}>
               <span style={{ fontSize: 11, color: "var(--muted)" }}>{label}</span>
@@ -2369,22 +2378,22 @@ const buyNowChartData = {
               </svg>
             </button>
 
-            <div style={{
+            <div data-analytics-status role="status" aria-live="polite" title={`Tracker connection: ${connected === null ? "checking" : connected ? "connected" : "unavailable"}`} style={{
               display: "flex", alignItems: "center", gap: 5, fontSize: 11, padding: "5px 10px",
               borderRadius: 6,
-              background: connected === true ? "rgba(34,211,160,0.1)" : "rgba(244,63,94,0.1)",
-              color: connected === true ? "var(--green)" : connected === false ? "var(--red)" : "var(--muted)",
-              border: `1px solid ${connected === true ? "rgba(34,211,160,0.2)" : connected === false ? "rgba(244,63,94,0.2)" : "var(--border)"}`,
+              background: analyticsError ? "rgba(244,63,94,0.1)" : "rgba(34,211,160,0.1)",
+              color: analyticsError ? "var(--red)" : analyticsLoading ? "var(--muted)" : "var(--green)",
+              border: "1px solid var(--border)",
             }}>
               <div style={{ width: 6, height: 6, borderRadius: "50%", background: "currentColor" }} />
-              {connected === null ? "Connecting…" : connected ? "Connected" : "Error"}
+              {summaryStatus}
             </div>
           </div>
         </div>
 
         {/* Content */}
         <div className="dashboard-content" style={{ flex: 1, width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 18 }}>
-          {analyticsError && <div role="alert" style={{padding:14,border:"1px solid var(--red)",borderRadius:8,color:"var(--red)"}}>{analyticsError} Displayed figures may be from the previous snapshot.</div>}
+          {analyticsError && <div role="alert" style={{padding:14,border:"1px solid var(--red)",borderRadius:8,color:"var(--red)"}}>{analyticsError} {summaryAvailable ? "Displayed figures are from the previous snapshot." : "Metrics are unavailable until a successful refresh."}</div>}
 {/* — LEMLIST — */}
 {activePage === "lemlist" && (
   <>
@@ -2956,7 +2965,7 @@ const buyNowChartData = {
         color: "var(--muted)",
       }}
     >
-      {productViews} total
+      {summaryAvailable ? productViews : "—"} total
     </div>
   </div>
 
@@ -3021,7 +3030,7 @@ const buyNowChartData = {
         color: "var(--muted)",
       }}
     >
-      {metrics.atc} total
+      {summaryMetric("atc")} total
     </div>
   </div>
 
@@ -3086,7 +3095,7 @@ const buyNowChartData = {
         color: "var(--muted)",
       }}
     >
-      {metrics.checkouts} total
+      {summaryMetric("checkouts")} total
     </div>
   </div>
 
@@ -3151,7 +3160,7 @@ const buyNowChartData = {
         color: "var(--muted)",
       }}
     >
-      {metrics.purchases} total
+      {summaryMetric("purchases")} total
     </div>
   </div>
 
@@ -3284,7 +3293,7 @@ const buyNowChartData = {
         color: "var(--muted)",
       }}
     >
-      {metrics.events} total
+      {summaryMetric("events")} total
     </div>
   </div>
 
@@ -3685,7 +3694,7 @@ const buyNowChartData = {
 
 <MetricCard
   label="Unique Visitors"
-  value={metrics.visitors}
+  value={summaryMetric("visitors")}
   color="var(--amber)"
   badge="Selected range"
   icon={<Users size={18} color="#d9a441" />}
@@ -3693,7 +3702,7 @@ const buyNowChartData = {
 
 <MetricCard
   label="New Visitors"
-  value={metrics.newVisitors}
+  value={summaryMetric("newVisitors")}
   color="var(--green)"
   badge="Selected range"
   icon={<Users size={18} color="#8fae6b" />}
@@ -3701,7 +3710,7 @@ const buyNowChartData = {
 
 <MetricCard
   label="Returning Unique Visitors"
-  value={metrics.returningUniqueVisitors}
+  value={summaryMetric("returningUniqueVisitors")}
   color="var(--blue)"
   badge="Selected range"
   icon={<Activity size={18} color="#8aa6a3" />}
@@ -3717,7 +3726,7 @@ const buyNowChartData = {
 
 <MetricCard
   label="Recorded sessions"
-  value={metrics.sessions}
+  value={summaryMetric("sessions")}
   color="var(--blue)"
   badge="Selected range"
   icon={<Monitor size={18} color="#8aa6a3" />}
@@ -3725,7 +3734,7 @@ const buyNowChartData = {
 
 <MetricCard
   label="Page Views"
-  value={metrics.pageviews}
+  value={summaryMetric("pageviews")}
   color="var(--amber)"
   badge="Selected range"
   spark={sparks.pageviews}
@@ -3734,7 +3743,7 @@ const buyNowChartData = {
 
 <MetricCard
   label="Total Events"
-  value={metrics.events}
+  value={summaryMetric("events")}
   color="var(--orange)"
   badge="Selected range"
   spark={sparks.events}
@@ -3743,7 +3752,7 @@ const buyNowChartData = {
 
 <MetricCard
   label="Order intent actions"
-  value={metrics.atc}
+  value={summaryMetric("atc")}
   color="var(--amber)"
   badge="Selected range"
   icon={<MousePointerClick size={18} color="#d9a441" />}
@@ -3751,7 +3760,7 @@ const buyNowChartData = {
 
 <MetricCard
   label="Prepared checkouts"
-  value={metrics.checkouts}
+  value={summaryMetric("checkouts")}
   color="var(--blue)"
   badge="Selected range"
   icon={<MousePointerClick size={18} color="#8aa6a3" />}
@@ -3759,7 +3768,7 @@ const buyNowChartData = {
 
 <MetricCard
   label="Confirmed sales"
-  value={metrics.purchases}
+  value={summaryMetric("purchases")}
   color="var(--green)"
   badge="Selected range"
   icon={<Mail size={18} color="#8fae6b" />}
@@ -3811,7 +3820,7 @@ const buyNowChartData = {
 
               </Panel>
               <Panel title="Observed visitor journey" badge="Selected range">
-                <OverviewFunnelKpi steps={funnelData} />
+                {summaryAvailable ? <OverviewFunnelKpi steps={funnelData} /> : <p style={{fontSize:12,color:"var(--muted)"}}>The visitor journey will appear after analytics loads.</p>}
               </Panel>
               <Panel title="Meta Ads Traffic">
                 {!metaStats.connected ? (
@@ -3933,10 +3942,10 @@ const buyNowChartData = {
          {activePage === "realtime" && <>
   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12 }}>
     <MetricCard label="Online Right Now" value={metrics.online} color="var(--green)" badge="Real-time" />
-    <MetricCard label="Recorded sessions" value={metrics.sessions} color="var(--blue)" badge="Selected range" />
-    <MetricCard label="Page Views" value={metrics.pageviews} color="var(--accent)" badge="Selected range" />
-    <MetricCard label="Unique Visitors" value={metrics.visitors} color="var(--accent)" badge="Selected range" />
-    <MetricCard label="Returning Visitors" value={metrics.returningUniqueVisitors} color="var(--blue)" badge="Selected range" />
+    <MetricCard label="Recorded sessions" value={summaryMetric("sessions")} color="var(--blue)" badge="Selected range" />
+    <MetricCard label="Page Views" value={summaryMetric("pageviews")} color="var(--accent)" badge="Selected range" />
+    <MetricCard label="Unique Visitors" value={summaryMetric("visitors")} color="var(--accent)" badge="Selected range" />
+    <MetricCard label="Returning Visitors" value={summaryMetric("returningUniqueVisitors")} color="var(--blue)" badge="Selected range" />
   </div>
 
   <Panel title="Visitor Details" badge="India Timezone">
@@ -4030,7 +4039,7 @@ const buyNowChartData = {
 </>}
           {/* ══ FUNNEL ══ */}
           {activePage === "funnel" && (
-            <Panel title="Observed visitor journey"><OverviewFunnelKpi steps={funnelData} /></Panel>
+            <Panel title="Observed visitor journey">{summaryAvailable ? <OverviewFunnelKpi steps={funnelData} /> : <p style={{fontSize:12,color:"var(--muted)"}}>The visitor journey will appear after analytics loads.</p>}</Panel>
           )}
 
           {/* ══ PAGES ══ */}

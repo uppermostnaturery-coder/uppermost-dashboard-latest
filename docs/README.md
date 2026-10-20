@@ -68,3 +68,17 @@ Validation: 100 automated tests passed (10 analytics regression tests included),
 Production smoke-check correction: initial deployment returned 503 because analytics tables lack service-role SELECT grants even though anon can read them. The dashboard route now uses the existing public analytics client for event/visitor/session reads and the server-only admin client only for checkout/order reads. No grants, RLS policies or database rows were changed. Regression tests enforce these separate role boundaries.
 
 Verified production code release: `0f90eda`, Vercel deployment `2DWD1oqMFvwi64pn2p6EFrMAaah8`. Live 30-day snapshot at verification: 462 visitors, 1,119 recorded sessions, 1,835 deduplicated page views, 13 prepared checkouts, one confirmed initial order and ₹7,000 paid revenue. Figures change as activity arrives. Today and 30-day APIs returned 200 with graph/card totals consistent and chronological funnel counts monotonic. Production HTML contained the responsive shell and updated funnel. This smoke check does not create a checkout/payment or establish the cause of the historical customer incident. Runtime logs remain unreviewed pending Vercel connection.
+
+## Dashboard summary status — local candidate, 21 October 2026
+
+A customer screenshot showed a failed summary with all-zero summary cards and a green Connected badge. The badge only checked the public tracker database and could succeed while the server summary failed. Zeroes were initial React values, not evidence of no activity. This presentation defect is reproduced with an injected 503 and corrected locally on `fix/dashboard-summary-status`: loading/error/readiness now follows the summary request, summary metrics and sidebar totals display `—` until a successful snapshot for the selected range, and a failed refresh explicitly labels the previous successful snapshot. The tracker connection is separate tooltip information. Query definitions and commerce behavior are unchanged; no architecture/API change or migration is required. Vercel production deployment of this additional UI correction awaits user approval.
+
+Current production investigation: five consecutive Today/hour API calls succeeded, and a fresh production browser session plus three refreshes received 200 summaries with no runtime error or banner. The screenshot's individual failed request has not been correlated to a runtime log, so do not claim its exact cause is proven. The earlier analytics service-role grant mismatch is independently established and already corrected. Vercel is now confirmed installed, but its runtime-log tools are not exposed to this running session; do not request reinstallation or claim logs were read.
+
+The browser regression `tests/analytics/summary-status.browser.cjs` injects a failed initial load, successful recovery and failed subsequent refresh, and checks a 375px viewport. Start the dashboard locally on port 3123 with dummy Supabase credentials, then run it using the existing frontend harness dependencies:
+
+```sh
+NODE_PATH=../uppermost-framer-website/test-harness/node_modules node tests/analytics/summary-status.browser.cjs
+```
+
+It intercepts analytics, advertising, lead and database HTTP requests. It uses the local Next.js page and installed Google Chrome; no real orders or payments are created.
