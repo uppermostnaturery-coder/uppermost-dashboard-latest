@@ -1,5 +1,9 @@
 # Uppermost repository rules
 
+## Release approvals and environment rules
+
+User instruction, 21 October 2026: prepare and test changes locally, then obtain explicit user approval separately before (1) deploying/redeploying backend code to Vercel Production, (2) pushing code into the Framer project, and (3) publishing Framer to production. Approval for one step does not approve the other steps. A Git push/merge that would trigger a production deployment also requires deployment approval. Do not change staging branches, deployments, projects, or settings. Future Git branches start from `main`; Framer changes, once explicitly approved, target Framer `main` directly. Do not create or edit Framer staging branches.
+
 AI coding-tool onboarding and skill routing are documented in `docs/AI_ASSISTANT_SKILLS.md`. Read the relevant installed skill's current instructions when its trigger applies; this file's commerce invariants take precedence.
 
 ## Frozen commerce architecture

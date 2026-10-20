@@ -1,12 +1,23 @@
 # Uppermost® Commerce V1 — Architecture & Implementation Blueprint
 
 **Document status:** FROZEN PRODUCTION ARCHITECTURE
-**Version:** 1.4
-**Date:** 5 October 2026
+**Version:** 1.5 (local revision; release approval pending)
+**Date:** 21 October 2026
 **Audience:** CXO / Product / Engineering / Framer / Operations / Growth  
 **Canonical repository path:** `docs/UPPERMOST_COMMERCE_ARCHITECTURE.md`
 
 > This document is the durable source of truth for Uppermost commerce V1. Future implementation changes should update this file before changing the architecture.
+
+## Checkout redirect work — release status, 21 October 2026
+
+- Backend `fix/checkout-experience-navigation`: prepare returns the existing experience token in `next.url`; optional public typing supports old idempotent replays. Existing verify/status behavior is unchanged. This is a local additive fallback, not a proven root-cause fix for the reported order. Backend tests: 90 passed; typecheck passed; production build passed with dummy local Supabase configuration. No migration is needed for these changes.
+- Frontend `fix/checkout-navigation-recovery`: replaces the completed checkout history entry, recovers restored checkout state, exposes a direct paid-order link after stalled navigation, polls unresolved/missing-URL verification responses, and discards responses from stopped polling generations. Six isolated browser scenarios and a focused TypeScript check passed. Mocked browser tests do not establish the incident's exact cause or prove mobile Safari/provider behavior in production.
+- After explicit user approval, `CheckoutDrawer.tsx` was pushed to Framer `main` and published to production as version `c2d30ff30` at https://www.uppermost.store. Framer readback matched the local source and returned no type errors; the published bundle contains the navigation replacement, page-restore handler and direct-order-link recovery. The user approved merging the backend prepare-URL fallback and analytics corrections into `main` and deploying Vercel production on 21 October 2026. Release success must be checked against the GitHub/Vercel deployment status; approval alone does not establish deployment. No staging branch or environment was changed.
+- Production order `UPM-20261019-000085` had a saved `CONFIRMED` verify response with the exact correct experience URL at 21:11:49.780 IST on 19 October. Analytics reported that token's `/experience` URL at 21:11:53.500 IST. These records contradict a missing-URL verification diagnosis for that order, but do not prove successful visual rendering. Browser Back restored the frozen overlay in an isolated reproduction; that does not prove Ankur used Back. Vercel logs remain unreviewed pending connection.
+
+## Release approvals and environment rules
+
+User instruction, 21 October 2026: prepare and test changes locally, then obtain explicit user approval separately before (1) deploying/redeploying backend code to Vercel Production, (2) pushing code into the Framer project, and (3) publishing Framer to production. Approval for one step does not approve the other steps. A Git push/merge that would trigger a production deployment also requires deployment approval. Do not change staging branches, deployments, projects, or settings. Future Git branches start from `main`; Framer changes, once explicitly approved, target Framer `main` directly. Do not create or edit Framer staging branches.
 
 ## Executive Summary
 
@@ -178,6 +189,8 @@ There is no separate cart page in V1. The system has **cart state without a cart
 Customer address is entered **once in Framer** and reused for Shiprocket and recurring fulfillment. Razorpay receives name/email/contact prefill where appropriate. Razorpay-managed QR/Intent is used; Uppermost does not generate its own payment QR.
 
 ## Native Framer /experience Page
+
+Checkout preparation returns `next: { type: "EXPERIENCE", url: "/experience?t=<high-entropy-token>" }` using the same token persisted on the checkout session and hashed on the order. Framer retains this URL only for that checkout attempt; it must wait for a server-verified `CONFIRMED` or `ACTIVATION_PENDING` response before using it as a fallback when that response lacks `next.url`. Returning the URL does not confirm payment, activate a subscription, or permit fulfilment. Status and verification continue to return the same URL for those states.
 
 After verification there is one navigation to `/experience?t=<high-entropy-token>`. This page replaces a generic thank-you page and becomes the customer's live order journey.
 

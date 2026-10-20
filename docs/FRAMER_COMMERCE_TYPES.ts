@@ -365,6 +365,8 @@ export interface CheckoutPrepareSuccessResponse {
   display: CheckoutDisplayAmounts;
   /** UUID for subscription/mixed carts; null for a pure buy-once cart. */
   subscription_id: string | null;
+  /** New prepares include this; legacy replays may omit it. Use only after verified CONFIRMED/ACTIVATION_PENDING. */
+  next?: { type: "EXPERIENCE"; url: string };
 }
 
 export type CheckoutPrepareResponse =

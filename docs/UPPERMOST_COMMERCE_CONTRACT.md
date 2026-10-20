@@ -1,5 +1,12 @@
 # Uppermost Commerce API Contract (V1)
 
+## Checkout redirect work — release status, 21 October 2026
+
+- Backend `fix/checkout-experience-navigation`: prepare returns the existing experience token in `next.url`; optional public typing supports old idempotent replays. Existing verify/status behavior is unchanged. This is a local additive fallback, not a proven root-cause fix for the reported order. Backend tests: 90 passed; typecheck passed; production build passed with dummy local Supabase configuration. No migration is needed for these changes.
+- Frontend `fix/checkout-navigation-recovery`: replaces the completed checkout history entry, recovers restored checkout state, exposes a direct paid-order link after stalled navigation, polls unresolved/missing-URL verification responses, and discards responses from stopped polling generations. Six isolated browser scenarios and a focused TypeScript check passed. Mocked browser tests do not establish the incident's exact cause or prove mobile Safari/provider behavior in production.
+- After explicit user approval, `CheckoutDrawer.tsx` was pushed to Framer `main` and published to production as version `c2d30ff30` at https://www.uppermost.store. Framer readback matched the local source and returned no type errors; the published bundle contains the navigation replacement, page-restore handler and direct-order-link recovery. The user approved merging the backend prepare-URL fallback and analytics corrections into `main` and deploying Vercel production on 21 October 2026. Release success must be checked against the GitHub/Vercel deployment status; approval alone does not establish deployment. No staging branch or environment was changed.
+- Production order `UPM-20261019-000085` had a saved `CONFIRMED` verify response with the exact correct experience URL at 21:11:49.780 IST on 19 October. Analytics reported that token's `/experience` URL at 21:11:53.500 IST. These records contradict a missing-URL verification diagnosis for that order, but do not prove successful visual rendering. Browser Back restored the frozen overlay in an isolated reproduction; that does not prove Ankur used Back. Vercel logs remain unreviewed pending connection.
+
 This is the Framer/backend contract. The frozen architecture remains `../../docs/UPPERMOST_COMMERCE_ARCHITECTURE.md`.
 
 ## Conventions
@@ -92,6 +99,8 @@ Response (`201`):
   "display": { "amount_now_paise": 1250000, "recurring_projection_paise": 700000, "mandate_max_amount_paise": 1250000, "interval_days": 30 }
 }
 ```
+
+Every new prepare success also returns `next: { type: "EXPERIENCE", url: "/experience?t=exp_..." }`. Framer caches it for that attempt only and uses it as a fallback after verify/status reports `CONFIRMED` or `ACTIVATION_PENDING`; preparation alone is not payment confirmation. Older idempotent replays may lack the field.
 
 Mixed checkout charges every initial line in the authorization order. Future recurring projection contains subscription lines only. The mandate maximum is `max(initial total, projected recurring total + configured buffer)`.
 

@@ -23,52 +23,17 @@ import {
   Share2,
   MousePointerClick,
   Bookmark,
+  Menu,
+  X,
 } from "lucide-react";
 
 import LemlistAnalytics from "./LemlistAnalytics";
 import BrevoAnalytics from "./BrevoAnalytics";
 import { supabase } from "@/lib/supabase";
 
-// Local range helpers (restore previous behavior before the global cutoff)
-function rangeStart(days: number) {
-  // IST (India) calendar-day boundaries
-  const IST_OFFSET = 5.5 * 60 * 60 * 1000; // IST = UTC + 5:30
-
-  // current IST time
-  const nowIST = new Date(Date.now() + IST_OFFSET);
-
-  // IST midnight for today
-  const istMidnight = new Date(nowIST);
-  istMidnight.setUTCHours(0, 0, 0, 0);
-
-  // go back `days - 1`
-  istMidnight.setUTCDate(istMidnight.getUTCDate() - (days - 1));
-
-  // convert back to UTC ISO for DB (DB stores UTC)
-  return new Date(istMidnight.getTime() - IST_OFFSET).toISOString();
-}
-
-function selectedRangeStartIso(range: number): string {
-  const IST_OFFSET = 5.5 * 60 * 60 * 1000;
-
-  if (range === 1) {
-    const nowIST = new Date(Date.now() + IST_OFFSET);
-    const istMidnight = new Date(nowIST);
-    istMidnight.setUTCHours(0, 0, 0, 0);
-    return new Date(istMidnight.getTime() - IST_OFFSET).toISOString();
-  }
-
-  if (range === 2) {
-    return new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-  }
-
-  // For 7/30/90 align to IST midnight of (today - (range-1))
-  const nowIST2 = new Date(Date.now() + IST_OFFSET);
-  const istMid = new Date(nowIST2);
-  istMid.setUTCHours(0, 0, 0, 0);
-  istMid.setUTCDate(istMid.getUTCDate() - (range - 1));
-  return new Date(istMid.getTime() - IST_OFFSET).toISOString();
-}
+import { dashboardWindow, FUNNEL_NOTE, type DashboardSummary } from "@/lib/analytics/summary";
+function rangeStart(days: number) { return dashboardWindow(days).since; }
+function selectedRangeStartIso(days: number) { return dashboardWindow(days).since; }
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -472,7 +437,7 @@ function MetricCard({
   icon?: React.ReactNode;
 }) {
   return (
-    <div style={{
+    <div className="dashboard-metric-card" style={{
       width: "100%",
       maxWidth: "100%",
       minWidth: 0,
@@ -486,7 +451,7 @@ padding: "18px 20px",position: "relative",overflow: "hidden",animation: "fadeIn 
       <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 2, background: color }} />
 
       <div
-       style={{
+       className="dashboard-metric-label" style={{
   minHeight: 64,
   lineHeight: 1.12,
   fontSize: label.length > 18 ? 15 : 17,
@@ -511,7 +476,7 @@ padding: "18px 20px",position: "relative",overflow: "hidden",animation: "fadeIn 
       
       </div>
       {icon && (
-  <span
+  <span className="dashboard-metric-icon"
     style={{
       position: "absolute",
       top: 18,
@@ -724,82 +689,16 @@ function BrowserAnalyticsTable({ items }: { items: BarItem[] }) {
   );
 }
 
-function OverviewFunnelKpi({ visitors, productViews, atc, checkouts, purchases }: { visitors: number; productViews: number; atc: number; checkouts: number; purchases: number; }) {
-  const steps = [
-    { label: "Visitors", value: visitors, pct: "100%", drop: "—" },
-    {
-  label: "Product Views",
-  value: productViews,
-  pct: visitors ? `${Math.round((productViews / visitors) * 100)}%` : "0%",
-  drop: visitors ? `${Math.round((1 - productViews / visitors) * 100)}%` : "0%",
-},
-    {
-      label: "Cart Adds",
-      value: atc,
-      pct: productViews ? `${Math.round((atc / productViews) * 100)}%` : "0%",
-      drop: productViews ? `${Math.round((1 - atc / productViews) * 100)}%` : "0%",
-    },
-    {
-      label: "Checkout",
-      value: checkouts,
-      pct: atc ? `${Math.round((checkouts / atc) * 100)}%` : "0%",
-      drop: atc ? `${Math.round((1 - checkouts / atc) * 100)}%` : "0%",
-    },
-    {
-      label: "Purchase",
-      value: purchases,
-      pct: checkouts ? `${Math.round((purchases / checkouts) * 100)}%` : "0%",
-      drop: checkouts ? `${Math.round((1 - purchases / checkouts) * 100)}%` : "0%",
-    },
-  ];
-  const overall = visitors ? `${Math.round((purchases / visitors) * 100)}%` : "0%";
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: 10 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.14em", color: "var(--muted)", textTransform: "uppercase" }}>Conversion Funnel</div>
-        <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--muted)", padding: "3px 8px", borderRadius: 999, border: "1px solid var(--border)" }}>Overview</div>
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {steps.map((step, i) => {
-          const stageWidths = [100, 82, 64, 48, 34];
-          const colors = ["#c98a4b", "#8fae6b", "#8aa6a3", "#d9a441", "#c4633f"];
-          const width = stageWidths[i];
-          const color = colors[i];
-          return (
-            <div key={step.label} style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10, alignItems: "center" }}>
-              <div style={{ display: "flex", justifyContent: "center" }}>
-                <div style={{ width: `${width}%`, minWidth: 0, maxWidth: "100%", position: "relative" }}>
-                  <div style={{
-                    clipPath: "polygon(0 0, 100% 0, 90% 100%, 10% 100%)",
-                    background: color,
-                    padding: "14px 14px",
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    minHeight: 70,
-                    color: "#fff",
-                    borderRadius: 16,
-                    boxShadow: "0 10px 18px rgba(0,0,0,0.18)",
-                  }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", color: "rgba(255,255,255,0.9)", textTransform: "uppercase", marginBottom: 4 }}>{step.label}</div>
-                    <div style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: "#fff" }}>{step.value}</div>
-                    <div style={{ fontSize: 10, color: "rgba(255,255,255,0.8)", marginTop: 4 }}>{step.pct} conversion</div>
-                  </div>
-                </div>
-              </div>
-            
-            </div>
-          );
-        })}
-      </div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", borderRadius: 12, background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)" }}>
-        <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: "0.12em", color: "var(--muted)", fontWeight: 700 }}>Overall Conversion Rate</div>
-        <div style={{ fontSize: 20, fontWeight: 700, color: "var(--accent)" }}>{overall}</div>
-      </div>
-    </div>
-  );
+function OverviewFunnelKpi({ steps }: { steps: DashboardSummary["funnel"] }) {
+  const top=steps[0]?.count || 0;
+  return <div style={{display:"grid",gap:14}}>
+    <p style={{fontSize:12,color:"var(--muted)",lineHeight:1.6,margin:0}}>{FUNNEL_NOTE}</p>
+    {steps.map(step=><div key={step.name}>
+      <div style={{display:"flex",justifyContent:"space-between",gap:12,fontSize:12,marginBottom:6}}><span>{step.name}</span><strong>{step.count} <span style={{color:"var(--muted)",fontWeight:400}}>({top?Math.round(step.count/top*100):0}%)</span></strong></div>
+      <div style={{height:10,background:"var(--bg3)",borderRadius:6,overflow:"hidden"}}><div style={{width:`${top?step.count/top*100:0}%`,height:"100%",background:step.color}} /></div>
+    </div>)}
+    <div style={{fontSize:11,color:"var(--muted)"}}>Percentages are of visitors in this range. Missing events can leave gaps in the observed journey.</div>
+  </div>;
 }
 
 function CompactVerticalBarGraph({ items }: { items: BarItem[] }) {
@@ -1541,7 +1440,7 @@ function InstagramPostPerformance({ stats }: { stats: any }) {
 
   return (
     <Panel title="Instagram Post Performance" badge="Post Insights">
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 240px), 1fr))", gap: 12, marginBottom: 16 }}>
         {[
           ["Total Views", totals.views, "var(--blue)"],
           ["Likes", totals.likes, "var(--pink)"],
@@ -1626,13 +1525,16 @@ function InstagramPostPerformance({ stats }: { stats: any }) {
 // ══════════════════════════════════════════════
 export default function Dashboard() {
   const [activePage, setActivePage] = useState<Page>("overview");
-  const [range, setRange]           = useState(1); 
+  const [range, setRange]           = useState(1);
   type GraphView = "line" | "area" | "bar";
 type GraphGroupBy = "auto" | "hour" | "day" | "week" | "month";
 
   const [graphView, setGraphView] = useState<GraphView>("line");
   const [graphGroupBy, setGraphGroupBy] = useState<GraphGroupBy>("auto");
   const resolvedGraphGroupBy: Exclude<GraphGroupBy, "auto"> =graphGroupBy === "auto"? range <= 2? "hour": range <= 30? "day": "week": graphGroupBy;
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  const analyticsRequest = useRef(0);
   const [connected, setConnected]   = useState<boolean | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [filterEvent, setFilterEvent] = useState("all");
@@ -1703,49 +1605,6 @@ const [brevoLeads, setBrevoLeads] = useState<number | null>(null);
   // ── helpers ──
   const toBarArr = (obj: Record<string, number>): BarItem[] =>
     Object.entries(obj).map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count).slice(0, 8);
-   const countSelectedRangeVisitors = useCallback(async (since: string) => {
-  const visitorEventCounts = new Map<string, number>();
-  const pageSize = 1000;
-
-  for (let from = 0; ; from += pageSize) {
-    const { data, error } = await supabase
-      .from("analytics_events")
-      .select("visitor_id")
-      .gte("created_at", since)
-      .not("visitor_id", "is", null)
-      .range(from, from + pageSize - 1);
-
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-
-    data.forEach((row) => {
-      if (!row.visitor_id) return;
-
-      visitorEventCounts.set(
-        row.visitor_id,
-        (visitorEventCounts.get(row.visitor_id) || 0) + 1
-      );
-    });
-
-    if (data.length < pageSize) break;
-  }
-
-  const uniqueVisitors = visitorEventCounts.size;
-
-  let returningUniqueVisitors = 0;
-
-  visitorEventCounts.forEach((count) => {
-    if (count > 1) {
-      returningUniqueVisitors += 1;
-    }
-  });
-
-  return {
-    uniqueVisitors,
-    newVisitors: Math.max(0, uniqueVisitors - returningUniqueVisitors),
-    returningUniqueVisitors,
-  };
-}, []);
   // ── CONNECTION CHECK ──
   const checkConn = useCallback(async () => {
     try {
@@ -1754,83 +1613,10 @@ const [brevoLeads, setBrevoLeads] = useState<number | null>(null);
     } catch { setConnected(false); }
   }, []);
 
-  // ── SIDEBAR ──
   const loadSidebar = useCallback(async () => {
-    const onlineCutoff = new Date(Date.now() - 3 * 60 * 1000).toISOString();
-    const sessionCutoff = new Date(Date.now() - 90 * 1000).toISOString();
-    const eventsSince = rangeStart(range);
-
-    const [on, vis, ses, ev] = await Promise.all([
-      supabase.from("analytics_visitors").select("visitor_id", { count: "exact", head: true }).gte("last_seen_at", onlineCutoff),
-      supabase.from("analytics_visitors").select("visitor_id", { count: "exact", head: true }),
-      supabase.from("analytics_sessions").select("session_id", { count: "exact", head: true }).eq("is_active", true).gt("last_seen_at", sessionCutoff),
-      supabase.from("analytics_events").select("event_name", { count: "exact", head: true }).gte("created_at", eventsSince),
-    ]);
-    setSidebarStats({ online: on.count ?? 0, visitors: vis.count ?? 0, sessions: ses.count ?? 0, events: ev.count ?? 0 });
-  }, [range]);
-
-  // ── METRICS ──
-  const loadMetrics = useCallback(async () => {
-  const since = rangeStart(range);
-
-  const [visitorBreakdown, on, s, pv, prod, ev, atc, co, pur] = await Promise.all([
-    countSelectedRangeVisitors(since),
-    supabase
-      .from("analytics_visitors")
-      .select("visitor_id", { count: "exact", head: true })
-      .gte("last_seen_at", new Date(Date.now() - 3 * 60 * 1000).toISOString()),
-    supabase
-      .from("analytics_sessions")
-      .select("session_id", { count: "exact", head: true })
-      .eq("is_active", true)
-      .gt("last_seen_at", new Date(Date.now() - 90 * 1000).toISOString()),
-    supabase
-      .from("analytics_events")
-      .select("event_name", { count: "exact", head: true })
-      .eq("event_name", "page_view")
-      .gte("created_at", since),
-    supabase
-      .from("analytics_events")
-      .select("event_name", { count: "exact", head: true })
-      .eq("event_name", "product_view")
-      .gte("created_at", since),
-    supabase
-      .from("analytics_events")
-      .select("event_name", { count: "exact", head: true })
-      .gte("created_at", since),
-    supabase
-      .from("analytics_events")
-      .select("event_name", { count: "exact", head: true })
-      .eq("event_name", "add_to_cart")
-      .gte("created_at", since),
-    supabase
-      .from("analytics_events")
-      .select("event_name", { count: "exact", head: true })
-      .eq("event_name", "checkout_started")
-      .gte("created_at", since),
-    supabase
-      .from("analytics_events")
-      .select("event_name", { count: "exact", head: true })
-      .ilike("event_name", "purchase%")
-      .gte("created_at", since),
-  ]);
-
-  setMetrics({
-    visitors: visitorBreakdown.uniqueVisitors,
-    newVisitors: visitorBreakdown.newVisitors,
-    returningUniqueVisitors: visitorBreakdown.returningUniqueVisitors,
-    online: on.count ?? 0,
-    sessions: s.count ?? 0,
-    pageviews: pv.count ?? 0,
-    events: ev.count ?? 0,
-    atc: atc.count ?? 0,
-    checkouts: co.count ?? 0,
-    purchases: pur.count ?? 0,
-  });
-
-  setProductViews(prod.count ?? 0);
-}, [range, countSelectedRangeVisitors]);
-
+    const {count,error}=await supabase.from("analytics_visitors").select("visitor_id",{count:"exact",head:true}).gte("last_seen_at",new Date(Date.now()-180000).toISOString());
+    if(!error){setSidebarStats(prev=>({...prev,online:count??0}));setMetrics(prev=>({...prev,online:count??0}));}
+  }, []);
 
   // ── BREVO LEADS ──
 const loadBrevoLeads = useCallback(async () => {
@@ -1854,1292 +1640,27 @@ const loadBrevoLeads = useCallback(async () => {
   }
 }, []);
 
-  // ── PAGE VIEW CHART ──
-  const loadPvChart = useCallback(async () => {
-    // Page Views chart: respect selected global `range`. Produce hourly buckets for 1d and 48h,
-    // daily buckets for larger ranges.
-    const sinceIso = rangeStart(range);
-    const { data } = await supabase.from("analytics_events").select("created_at").eq("event_name", "page_view").gte("created_at", sinceIso).order("created_at", { ascending: true });
-
-    const items = data || [];
-
-    if (resolvedGraphGroupBy === "hour") {  
-      // hourly buckets: for Today (since IST midnight) or last 48 hours
-      const start = new Date(selectedRangeStartIso(range));
-      const end = new Date();
-      const hours = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (60 * 60 * 1000)));
-      const labels: string[] = [];
-      const counts: number[] = Array(hours).fill(0);
-
-      for (let i = 0; i < hours; i++) {
-        const d = new Date(start.getTime() + i * 60 * 60 * 1000);
-        labels.push(d.toLocaleTimeString("en-IN", { hour: "2-digit", hour12: false }) + ":00");
-      }
-
-      items.forEach((e) => {
-        const t = new Date(e.created_at).getTime();
-        const idx = Math.floor((t - start.getTime()) / (60 * 60 * 1000));
-        if (idx >= 0 && idx < counts.length) counts[idx]++;
-      });
-
-      setPvData({ labels, values: counts });
-    } else {
-  const start = new Date(selectedRangeStartIso(range));
-  const end = new Date();
-
-  const bucketMap: Record<string, number> = {};
-
-  if (resolvedGraphGroupBy === "day") {
-    const days = Math.max(
-      1,
-      Math.ceil(
-        (end.getTime() - start.getTime()) /
-          (24 * 60 * 60 * 1000)
-      )
-    );
-
-    for (let i = 0; i < days; i++) {
-      const d = new Date(start);
-      d.setUTCDate(d.getUTCDate() + i);
-
-      const key = d.toLocaleDateString("en-IN", {
-        day: "2-digit",
-        month: "short",
-      });
-
-      bucketMap[key] = 0;
-    }
-
-    items.forEach((e) => {
-      const key = new Date(e.created_at).toLocaleDateString("en-IN", {
-        day: "2-digit",
-        month: "short",
-      });
-
-      if (key in bucketMap) {
-        bucketMap[key]++;
-      }
-    });
-  }
-
-  if (resolvedGraphGroupBy === "week") {
-    const weekMs = 7 * 24 * 60 * 60 * 1000;
-    const weeks = Math.max(
-      1,
-      Math.ceil((end.getTime() - start.getTime()) / weekMs)
-    );
-
-    for (let i = 0; i < weeks; i++) {
-      const d = new Date(start.getTime() + i * weekMs);
-
-      const key = d.toLocaleDateString("en-IN", {
-        day: "2-digit",
-        month: "short",
-      });
-
-      bucketMap[key] = 0;
-    }
-
-    items.forEach((e) => {
-      const t = new Date(e.created_at).getTime();
-      const index = Math.floor((t - start.getTime()) / weekMs);
-
-      if (index >= 0 && index < weeks) {
-        const d = new Date(start.getTime() + index * weekMs);
-
-        const key = d.toLocaleDateString("en-IN", {
-          day: "2-digit",
-          month: "short",
-        });
-
-        bucketMap[key]++;
-      }
-    });
-  }
-
-  if (resolvedGraphGroupBy === "month") {
-    const cursor = new Date(start);
-
-    cursor.setUTCDate(1);
-
-    while (cursor <= end) {
-      const key = cursor.toLocaleDateString("en-IN", {
-        month: "short",
-        year: "numeric",
-      });
-
-      bucketMap[key] = 0;
-      cursor.setUTCMonth(cursor.getUTCMonth() + 1);
-    }
-
-    items.forEach((e) => {
-      const key = new Date(e.created_at).toLocaleDateString("en-IN", {
-        month: "short",
-        year: "numeric",
-      });
-
-      if (key in bucketMap) {
-        bucketMap[key]++;
-      }
-    });
-  }
-
-  setPvData({
-    labels: Object.keys(bucketMap),
-    values: Object.values(bucketMap),
-  });
-}
- }, [range, resolvedGraphGroupBy]);
-  // ── PRODUCT VIEW CHART ──
-const loadProductViewChart = useCallback(async () => {
-  const sinceIso = rangeStart(range);
- 
-
-  const { data } = await supabase
-    .from("analytics_events")
-    .select("created_at")
-    .eq("event_name", "product_view")
-    .gte("created_at", sinceIso)
-    .order("created_at", { ascending: true });
-
-  const items = data || [];
-
-  // TODAY + 48H → hourly graph
-  if (range === 1 || range === 2) {
-    const start = new Date(selectedRangeStartIso(range));
-    const end = new Date();
-
-    const hours = Math.max(
-      1,
-      Math.ceil(
-        (end.getTime() - start.getTime()) /
-          (60 * 60 * 1000)
-      )
-    );
-
-    const labels: string[] = [];
-    const counts: number[] = Array(hours).fill(0);
-
-    for (let i = 0; i < hours; i++) {
-      const d = new Date(
-        start.getTime() + i * 60 * 60 * 1000
-      );
-
-      labels.push(
-        d.toLocaleTimeString("en-IN", {
-          hour: "2-digit",
-          hour12: false,
-        }) + ":00"
-      );
-    }
-
-    items.forEach((e) => {
-      const t = new Date(e.created_at).getTime();
-
-      const idx = Math.floor(
-        (t - start.getTime()) /
-          (60 * 60 * 1000)
-      );
-
-      if (idx >= 0 && idx < counts.length) {
-        counts[idx]++;
-      }
-    });
-
-    setProductViewGraphData({
-      labels,
-      values: counts,
-    });
-  }
-
-  // 7D / 30D / 90D → daily graph
-  else {
-    const start = new Date(selectedRangeStartIso(range));
-    const end = new Date();
-
-    const days = Math.max(
-      1,
-      Math.ceil(
-        (end.getTime() - start.getTime()) /
-          (24 * 60 * 60 * 1000)
-      )
-    );
-
-    const dayMap: Record<string, number> = {};
-
-    for (let i = 0; i < days; i++) {
-      const d = new Date(start);
-      d.setUTCDate(d.getUTCDate() + i);
-
-      const key = d.toLocaleDateString("en-IN", {
-        day: "2-digit",
-        month: "short",
-      });
-
-      dayMap[key] = 0;
-    }
-
-    items.forEach((e) => {
-      const key = new Date(
-        e.created_at
-      ).toLocaleDateString("en-IN", {
-        day: "2-digit",
-        month: "short",
-      });
-
-      if (key in dayMap) {
-        dayMap[key]++;
-      }
-    });
-
-    setProductViewGraphData({
-      labels: Object.keys(dayMap),
-      values: Object.values(dayMap),
-    });
-  }
-}, [range]);
-
-// ── ADD TO CART CHART ──
-const loadAddToCartChart = useCallback(async () => {
-  const sinceIso = rangeStart(range);
-
-  const { data } = await supabase
-    .from("analytics_events")
-    .select("created_at")
-    .eq("event_name", "add_to_cart")
-    .gte("created_at", sinceIso)
-    .order("created_at", { ascending: true });
-
-  const items = data || [];
-
-  if (range === 1 || range === 2) {
-    const start = new Date(selectedRangeStartIso(range));
-    const end = new Date();
-
-    const hours = Math.max(
-      1,
-      Math.ceil(
-        (end.getTime() - start.getTime()) /
-          (60 * 60 * 1000)
-      )
-    );
-
-    const labels: string[] = [];
-    const counts: number[] = Array(hours).fill(0);
-
-    for (let i = 0; i < hours; i++) {
-      const d = new Date(
-        start.getTime() + i * 60 * 60 * 1000
-      );
-
-      labels.push(
-        d.toLocaleTimeString("en-IN", {
-          hour: "2-digit",
-          hour12: false,
-        }) + ":00"
-      );
-    }
-
-    items.forEach((e) => {
-      const t = new Date(e.created_at).getTime();
-
-      const idx = Math.floor(
-        (t - start.getTime()) /
-          (60 * 60 * 1000)
-      );
-
-      if (idx >= 0 && idx < counts.length) {
-        counts[idx]++;
-      }
-    });
-
-    setAddToCartGraphData({
-      labels,
-      values: counts,
-    });
-  } else {
-    const start = new Date(selectedRangeStartIso(range));
-    const end = new Date();
-
-    const days = Math.max(
-      1,
-      Math.ceil(
-        (end.getTime() - start.getTime()) /
-          (24 * 60 * 60 * 1000)
-      )
-    );
-
-    const dayMap: Record<string, number> = {};
-
-    for (let i = 0; i < days; i++) {
-      const d = new Date(start);
-      d.setUTCDate(d.getUTCDate() + i);
-
-      const key = d.toLocaleDateString("en-IN", {
-        day: "2-digit",
-        month: "short",
-      });
-
-      dayMap[key] = 0;
-    }
-
-    items.forEach((e) => {
-      const key = new Date(e.created_at).toLocaleDateString(
-        "en-IN",
-        {
-          day: "2-digit",
-          month: "short",
-        }
-      );
-
-      if (key in dayMap) {
-        dayMap[key]++;
-      }
-    });
-
-    setAddToCartGraphData({
-      labels: Object.keys(dayMap),
-      values: Object.values(dayMap),
-    });
-  }
-}, [range]);
-// ── CHECKOUT CHART ──
-const loadCheckoutChart = useCallback(async () => {
-  const sinceIso = rangeStart(range);
-
-  const { data } = await supabase
-    .from("analytics_events")
-    .select("created_at")
-    .eq("event_name", "checkout_started")
-    .gte("created_at", sinceIso)
-    .order("created_at", { ascending: true });
-
-  const items = data || [];
-
-  if (range === 1 || range === 2) {
-    const start = new Date(selectedRangeStartIso(range));
-    const end = new Date();
-
-    const hours = Math.max(
-      1,
-      Math.ceil(
-        (end.getTime() - start.getTime()) /
-          (60 * 60 * 1000)
-      )
-    );
-
-    const labels: string[] = [];
-    const counts: number[] = Array(hours).fill(0);
-
-    for (let i = 0; i < hours; i++) {
-      const d = new Date(
-        start.getTime() + i * 60 * 60 * 1000
-      );
-
-      labels.push(
-        d.toLocaleTimeString("en-IN", {
-          hour: "2-digit",
-          hour12: false,
-        }) + ":00"
-      );
-    }
-
-    items.forEach((e) => {
-      const t = new Date(e.created_at).getTime();
-
-      const idx = Math.floor(
-        (t - start.getTime()) /
-          (60 * 60 * 1000)
-      );
-
-      if (idx >= 0 && idx < counts.length) {
-        counts[idx]++;
-      }
-    });
-
-    setCheckoutGraphData({
-      labels,
-      values: counts,
-    });
-  } else {
-    const start = new Date(selectedRangeStartIso(range));
-    const end = new Date();
-
-    const days = Math.max(
-      1,
-      Math.ceil(
-        (end.getTime() - start.getTime()) /
-          (24 * 60 * 60 * 1000)
-      )
-    );
-
-    const dayMap: Record<string, number> = {};
-
-    for (let i = 0; i < days; i++) {
-      const d = new Date(start);
-      d.setUTCDate(d.getUTCDate() + i);
-
-      const key = d.toLocaleDateString("en-IN", {
-        day: "2-digit",
-        month: "short",
-      });
-
-      dayMap[key] = 0;
-    }
-
-    items.forEach((e) => {
-      const key = new Date(e.created_at).toLocaleDateString(
-        "en-IN",
-        {
-          day: "2-digit",
-          month: "short",
-        }
-      );
-
-      if (key in dayMap) {
-        dayMap[key]++;
-      }
-    });
-
-    setCheckoutGraphData({
-      labels: Object.keys(dayMap),
-      values: Object.values(dayMap),
-    });
-  }
-}, [range]);
-
-// ── PURCHASE CHART ──
-const loadPurchaseChart = useCallback(async () => {
-  const sinceIso = rangeStart(range);
-
-  const { data } = await supabase
-    .from("analytics_events")
-    .select("created_at")
-    .ilike("event_name", "purchase%")
-    .gte("created_at", sinceIso)
-    .order("created_at", { ascending: true });
-
-  const items = data || [];
-
-  if (range === 1 || range === 2) {
-    const start = new Date(selectedRangeStartIso(range));
-    const end = new Date();
-
-    const hours = Math.max(
-      1,
-      Math.ceil(
-        (end.getTime() - start.getTime()) /
-          (60 * 60 * 1000)
-      )
-    );
-
-    const labels: string[] = [];
-    const counts: number[] = Array(hours).fill(0);
-
-    for (let i = 0; i < hours; i++) {
-      const d = new Date(
-        start.getTime() + i * 60 * 60 * 1000
-      );
-
-      labels.push(
-        d.toLocaleTimeString("en-IN", {
-          hour: "2-digit",
-          hour12: false,
-        }) + ":00"
-      );
-    }
-
-    items.forEach((e) => {
-      const t = new Date(e.created_at).getTime();
-
-      const idx = Math.floor(
-        (t - start.getTime()) /
-          (60 * 60 * 1000)
-      );
-
-      if (idx >= 0 && idx < counts.length) {
-        counts[idx]++;
-      }
-    });
-
-    setPurchaseGraphData({
-      labels,
-      values: counts,
-    });
-  } else {
-    const start = new Date(selectedRangeStartIso(range));
-    const end = new Date();
-
-    const days = Math.max(
-      1,
-      Math.ceil(
-        (end.getTime() - start.getTime()) /
-          (24 * 60 * 60 * 1000)
-      )
-    );
-
-    const dayMap: Record<string, number> = {};
-
-    for (let i = 0; i < days; i++) {
-      const d = new Date(start);
-      d.setUTCDate(d.getUTCDate() + i);
-
-      const key = d.toLocaleDateString("en-IN", {
-        day: "2-digit",
-        month: "short",
-      });
-
-      dayMap[key] = 0;
-    }
-
-    items.forEach((e) => {
-      const key = new Date(e.created_at).toLocaleDateString(
-        "en-IN",
-        {
-          day: "2-digit",
-          month: "short",
-        }
-      );
-
-      if (key in dayMap) {
-        dayMap[key]++;
-      }
-    });
-
-    setPurchaseGraphData({
-      labels: Object.keys(dayMap),
-      values: Object.values(dayMap),
-    });
-  }
-}, [range]);
-// ── BUTTON CLICK CHART ──
-const loadButtonClickChart = useCallback(async () => {
-  const sinceIso = rangeStart(range);
-
-  const { data } = await supabase
-    .from("analytics_events")
-    .select("created_at")
-    .eq("event_name", "button_click")
-    .gte("created_at", sinceIso)
-    .order("created_at", { ascending: true });
-
-  const items = data || [];
-
-  if (range === 1 || range === 2) {
-    const start = new Date(selectedRangeStartIso(range));
-    const end = new Date();
-
-    const hours = Math.max(
-      1,
-      Math.ceil(
-        (end.getTime() - start.getTime()) /
-          (60 * 60 * 1000)
-      )
-    );
-
-    const labels: string[] = [];
-    const counts: number[] = Array(hours).fill(0);
-
-    for (let i = 0; i < hours; i++) {
-      const d = new Date(
-        start.getTime() + i * 60 * 60 * 1000
-      );
-
-      labels.push(
-        d.toLocaleTimeString("en-IN", {
-          hour: "2-digit",
-          hour12: false,
-        }) + ":00"
-      );
-    }
-
-    items.forEach((e) => {
-      const t = new Date(e.created_at).getTime();
-
-      const idx = Math.floor(
-        (t - start.getTime()) /
-          (60 * 60 * 1000)
-      );
-
-      if (idx >= 0 && idx < counts.length) {
-        counts[idx]++;
-      }
-    });
-
-    setButtonClickGraphData({
-      labels,
-      values: counts,
-    });
-  } else {
-    const start = new Date(selectedRangeStartIso(range));
-    const end = new Date();
-
-    const days = Math.max(
-      1,
-      Math.ceil(
-        (end.getTime() - start.getTime()) /
-          (24 * 60 * 60 * 1000)
-      )
-    );
-
-    const dayMap: Record<string, number> = {};
-
-    for (let i = 0; i < days; i++) {
-      const d = new Date(start);
-      d.setUTCDate(d.getUTCDate() + i);
-
-      const key = d.toLocaleDateString("en-IN", {
-        day: "2-digit",
-        month: "short",
-      });
-
-      dayMap[key] = 0;
-    }
-
-    items.forEach((e) => {
-      const key = new Date(e.created_at).toLocaleDateString(
-        "en-IN",
-        {
-          day: "2-digit",
-          month: "short",
-        }
-      );
-
-      if (key in dayMap) {
-        dayMap[key]++;
-      }
-    });
-
-    setButtonClickGraphData({
-      labels: Object.keys(dayMap),
-      values: Object.values(dayMap),
-    });
-  }
-}, [range]);  
-// ── TOTAL EVENTS CHART ──
-const loadTotalEventsChart = useCallback(async () => {
-  const sinceIso = rangeStart(range);
-
-  const { data } = await supabase
-    .from("analytics_events")
-    .select("created_at")
-    .gte("created_at", sinceIso)
-    .order("created_at", { ascending: true });
-
-  const items = data || [];
-
-  if (range === 1 || range === 2) {
-    const start = new Date(selectedRangeStartIso(range));
-    const end = new Date();
-
-    const hours = Math.max(
-      1,
-      Math.ceil(
-        (end.getTime() - start.getTime()) /
-          (60 * 60 * 1000)
-      )
-    );
-
-    const labels: string[] = [];
-    const counts: number[] = Array(hours).fill(0);
-
-    for (let i = 0; i < hours; i++) {
-      const d = new Date(
-        start.getTime() + i * 60 * 60 * 1000
-      );
-
-      labels.push(
-        d.toLocaleTimeString("en-IN", {
-          hour: "2-digit",
-          hour12: false,
-        }) + ":00"
-      );
-    }
-
-    items.forEach((e) => {
-      const t = new Date(e.created_at).getTime();
-
-      const idx = Math.floor(
-        (t - start.getTime()) /
-          (60 * 60 * 1000)
-      );
-
-      if (idx >= 0 && idx < counts.length) {
-        counts[idx]++;
-      }
-    });
-
-    setTotalEventsGraphData({
-      labels,
-      values: counts,
-    });
-  } else {
-    const start = new Date(selectedRangeStartIso(range));
-    const end = new Date();
-
-    const days = Math.max(
-      1,
-      Math.ceil(
-        (end.getTime() - start.getTime()) /
-          (24 * 60 * 60 * 1000)
-      )
-    );
-
-    const dayMap: Record<string, number> = {};
-
-    for (let i = 0; i < days; i++) {
-      const d = new Date(start);
-      d.setUTCDate(d.getUTCDate() + i);
-
-      const key = d.toLocaleDateString("en-IN", {
-        day: "2-digit",
-        month: "short",
-      });
-
-      dayMap[key] = 0;
-    }
-
-    items.forEach((e) => {
-      const key = new Date(e.created_at).toLocaleDateString(
-        "en-IN",
-        {
-          day: "2-digit",
-          month: "short",
-        }
-      );
-
-      if (key in dayMap) {
-        dayMap[key]++;
-      }
-    });
-
-    setTotalEventsGraphData({
-      labels: Object.keys(dayMap),
-      values: Object.values(dayMap),
-    });
-  }
-}, [range]);
-// ── SCROLL 25% CHART ──
-const loadScroll25Chart = useCallback(async () => {
-  const sinceIso = rangeStart(range);
-
-  const { data } = await supabase
-    .from("analytics_events")
-    .select("created_at")
-    .eq("event_name", "scroll_depth_25")
-    .gte("created_at", sinceIso)
-    .order("created_at", { ascending: true });
-
-  const items = data || [];
-
-  if (range === 1 || range === 2) {
-    const start = new Date(selectedRangeStartIso(range));
-    const end = new Date();
-
-    const hours = Math.max(
-      1,
-      Math.ceil(
-        (end.getTime() - start.getTime()) /
-          (60 * 60 * 1000)
-      )
-    );
-
-    const labels: string[] = [];
-    const counts: number[] = Array(hours).fill(0);
-
-    for (let i = 0; i < hours; i++) {
-      const d = new Date(
-        start.getTime() + i * 60 * 60 * 1000
-      );
-
-      labels.push(
-        d.toLocaleTimeString("en-IN", {
-          hour: "2-digit",
-          hour12: false,
-        }) + ":00"
-      );
-    }
-
-    items.forEach((e) => {
-      const t = new Date(e.created_at).getTime();
-
-      const idx = Math.floor(
-        (t - start.getTime()) /
-          (60 * 60 * 1000)
-      );
-
-      if (idx >= 0 && idx < counts.length) {
-        counts[idx]++;
-      }
-    });
-
-    setScroll25GraphData({
-      labels,
-      values: counts,
-    });
-  } else {
-    const start = new Date(selectedRangeStartIso(range));
-    const end = new Date();
-
-    const days = Math.max(
-      1,
-      Math.ceil(
-        (end.getTime() - start.getTime()) /
-          (24 * 60 * 60 * 1000)
-      )
-    );
-
-    const dayMap: Record<string, number> = {};
-
-    for (let i = 0; i < days; i++) {
-      const d = new Date(start);
-      d.setUTCDate(d.getUTCDate() + i);
-
-      const key = d.toLocaleDateString("en-IN", {
-        day: "2-digit",
-        month: "short",
-      });
-
-      dayMap[key] = 0;
-    }
-
-    items.forEach((e) => {
-      const key = new Date(e.created_at).toLocaleDateString(
-        "en-IN",
-        {
-          day: "2-digit",
-          month: "short",
-        }
-      );
-
-      if (key in dayMap) {
-        dayMap[key]++;
-      }
-    });
-
-    setScroll25GraphData({
-      labels: Object.keys(dayMap),
-      values: Object.values(dayMap),
-    });
-  }
-}, [range]);
-// ── SCROLL 50% CHART ──
-const loadScroll50Chart = useCallback(async () => {
-  const sinceIso = rangeStart(range);
-
-  const { data } = await supabase
-    .from("analytics_events")
-    .select("created_at")
-    .eq("event_name", "scroll_depth_50")
-    .gte("created_at", sinceIso)
-    .order("created_at", { ascending: true });
-
-  const items = data || [];
-
-  if (range === 1 || range === 2) {
-    const start = new Date(selectedRangeStartIso(range));
-    const end = new Date();
-
-    const hours = Math.max(
-      1,
-      Math.ceil(
-        (end.getTime() - start.getTime()) /
-          (60 * 60 * 1000)
-      )
-    );
-
-    const labels: string[] = [];
-    const counts: number[] = Array(hours).fill(0);
-
-    for (let i = 0; i < hours; i++) {
-      const d = new Date(
-        start.getTime() + i * 60 * 60 * 1000
-      );
-
-      labels.push(
-        d.toLocaleTimeString("en-IN", {
-          hour: "2-digit",
-          hour12: false,
-        }) + ":00"
-      );
-    }
-
-    items.forEach((e) => {
-      const t = new Date(e.created_at).getTime();
-
-      const idx = Math.floor(
-        (t - start.getTime()) /
-          (60 * 60 * 1000)
-      );
-
-      if (idx >= 0 && idx < counts.length) {
-        counts[idx]++;
-      }
-    });
-
-    setScroll50GraphData({
-      labels,
-      values: counts,
-    });
-  } else {
-    const start = new Date(selectedRangeStartIso(range));
-    const end = new Date();
-
-    const days = Math.max(
-      1,
-      Math.ceil(
-        (end.getTime() - start.getTime()) /
-          (24 * 60 * 60 * 1000)
-      )
-    );
-
-    const dayMap: Record<string, number> = {};
-
-    for (let i = 0; i < days; i++) {
-      const d = new Date(start);
-      d.setUTCDate(d.getUTCDate() + i);
-
-      const key = d.toLocaleDateString("en-IN", {
-        day: "2-digit",
-        month: "short",
-      });
-
-      dayMap[key] = 0;
-    }
-
-    items.forEach((e) => {
-      const key = new Date(e.created_at).toLocaleDateString(
-        "en-IN",
-        {
-          day: "2-digit",
-          month: "short",
-        }
-      );
-
-      if (key in dayMap) {
-        dayMap[key]++;
-      }
-    });
-
-    setScroll50GraphData({
-      labels: Object.keys(dayMap),
-      values: Object.values(dayMap),
-    });
-  }
-}, [range]);
-
-// ── SCROLL 75% CHART ──
-const loadScroll75Chart = useCallback(async () => {
-  const sinceIso = rangeStart(range);
-
-  const { data } = await supabase
-    .from("analytics_events")
-    .select("created_at")
-    .eq("event_name", "scroll_depth_75")
-    .gte("created_at", sinceIso)
-    .order("created_at", { ascending: true });
-
-  const items = data || [];
-
-  if (range === 1 || range === 2) {
-    const start = new Date(selectedRangeStartIso(range));
-    const end = new Date();
-
-    const hours = Math.max(
-      1,
-      Math.ceil(
-        (end.getTime() - start.getTime()) /
-          (60 * 60 * 1000)
-      )
-    );
-
-    const labels: string[] = [];
-    const counts: number[] = Array(hours).fill(0);
-
-    for (let i = 0; i < hours; i++) {
-      const d = new Date(
-        start.getTime() + i * 60 * 60 * 1000
-      );
-
-      labels.push(
-        d.toLocaleTimeString("en-IN", {
-          hour: "2-digit",
-          hour12: false,
-        }) + ":00"
-      );
-    }
-
-    items.forEach((e) => {
-      const t = new Date(e.created_at).getTime();
-
-      const idx = Math.floor(
-        (t - start.getTime()) /
-          (60 * 60 * 1000)
-      );
-
-      if (idx >= 0 && idx < counts.length) {
-        counts[idx]++;
-      }
-    });
-
-    setScroll75GraphData({
-      labels,
-      values: counts,
-    });
-  } else {
-    const start = new Date(selectedRangeStartIso(range));
-    const end = new Date();
-
-    const days = Math.max(
-      1,
-      Math.ceil(
-        (end.getTime() - start.getTime()) /
-          (24 * 60 * 60 * 1000)
-      )
-    );
-
-    const dayMap: Record<string, number> = {};
-
-    for (let i = 0; i < days; i++) {
-      const d = new Date(start);
-      d.setUTCDate(d.getUTCDate() + i);
-
-      const key = d.toLocaleDateString("en-IN", {
-        day: "2-digit",
-        month: "short",
-      });
-
-      dayMap[key] = 0;
-    }
-
-    items.forEach((e) => {
-      const key = new Date(e.created_at).toLocaleDateString(
-        "en-IN",
-        {
-          day: "2-digit",
-          month: "short",
-        }
-      );
-
-      if (key in dayMap) {
-        dayMap[key]++;
-      }
-    });
-
-    setScroll75GraphData({
-      labels: Object.keys(dayMap),
-      values: Object.values(dayMap),
-    });
-  }
-}, [range]);
-// ── SCROLL 100% CHART ──
-const loadScroll100Chart = useCallback(async () => {
-  const sinceIso = rangeStart(range);
-
-  const { data } = await supabase
-    .from("analytics_events")
-    .select("created_at")
-    .eq("event_name", "scroll_depth_100")
-    .gte("created_at", sinceIso)
-    .order("created_at", { ascending: true });
-
-  const items = data || [];
-
-  if (range === 1 || range === 2) {
-    const start = new Date(selectedRangeStartIso(range));
-    const end = new Date();
-
-    const hours = Math.max(
-      1,
-      Math.ceil(
-        (end.getTime() - start.getTime()) /
-          (60 * 60 * 1000)
-      )
-    );
-
-    const labels: string[] = [];
-    const counts: number[] = Array(hours).fill(0);
-
-    for (let i = 0; i < hours; i++) {
-      const d = new Date(
-        start.getTime() + i * 60 * 60 * 1000
-      );
-
-      labels.push(
-        d.toLocaleTimeString("en-IN", {
-          hour: "2-digit",
-          hour12: false,
-        }) + ":00"
-      );
-    }
-
-    items.forEach((e) => {
-      const t = new Date(e.created_at).getTime();
-
-      const idx = Math.floor(
-        (t - start.getTime()) /
-          (60 * 60 * 1000)
-      );
-
-      if (idx >= 0 && idx < counts.length) {
-        counts[idx]++;
-      }
-    });
-
-    setScroll100GraphData({
-      labels,
-      values: counts,
-    });
-  } else {
-    const start = new Date(selectedRangeStartIso(range));
-    const end = new Date();
-
-    const days = Math.max(
-      1,
-      Math.ceil(
-        (end.getTime() - start.getTime()) /
-          (24 * 60 * 60 * 1000)
-      )
-    );
-
-    const dayMap: Record<string, number> = {};
-
-    for (let i = 0; i < days; i++) {
-      const d = new Date(start);
-      d.setUTCDate(d.getUTCDate() + i);
-
-      const key = d.toLocaleDateString("en-IN", {
-        day: "2-digit",
-        month: "short",
-      });
-
-      dayMap[key] = 0;
-    }
-
-    items.forEach((e) => {
-      const key = new Date(e.created_at).toLocaleDateString(
-        "en-IN",
-        {
-          day: "2-digit",
-          month: "short",
-        }
-      );
-
-      if (key in dayMap) {
-        dayMap[key]++;
-      }
-    });
-
-    setScroll100GraphData({
-      labels: Object.keys(dayMap),
-      values: Object.values(dayMap),
-    });
-  }
-}, [range]);
-// ── BUY NOW CLICK CHART ──
-const loadBuyNowChart = useCallback(async () => {
-  const sinceIso = rangeStart(range);
-
-  const { data } = await supabase
-    .from("analytics_events")
-    .select("created_at")
-    .eq("event_name", "buy_now_click")
-    .gte("created_at", sinceIso)
-    .order("created_at", { ascending: true });
-
-  const items = data || [];
-
-  if (range === 1 || range === 2) {
-    const start = new Date(selectedRangeStartIso(range));
-    const end = new Date();
-
-    const hours = Math.max(
-      1,
-      Math.ceil(
-        (end.getTime() - start.getTime()) /
-          (60 * 60 * 1000)
-      )
-    );
-
-    const labels: string[] = [];
-    const counts: number[] = Array(hours).fill(0);
-
-    for (let i = 0; i < hours; i++) {
-      const d = new Date(
-        start.getTime() + i * 60 * 60 * 1000
-      );
-
-      labels.push(
-        d.toLocaleTimeString("en-IN", {
-          hour: "2-digit",
-          hour12: false,
-        }) + ":00"
-      );
-    }
-
-    items.forEach((e) => {
-      const t = new Date(e.created_at).getTime();
-
-      const idx = Math.floor(
-        (t - start.getTime()) /
-          (60 * 60 * 1000)
-      );
-
-      if (idx >= 0 && idx < counts.length) {
-        counts[idx]++;
-      }
-    });
-
-    setBuyNowGraphData({
-      labels,
-      values: counts,
-    });
-  } else {
-    const start = new Date(selectedRangeStartIso(range));
-    const end = new Date();
-
-    const days = Math.max(
-      1,
-      Math.ceil(
-        (end.getTime() - start.getTime()) /
-          (24 * 60 * 60 * 1000)
-      )
-    );
-
-    const dayMap: Record<string, number> = {};
-
-    for (let i = 0; i < days; i++) {
-      const d = new Date(start);
-      d.setUTCDate(d.getUTCDate() + i);
-
-      const key = d.toLocaleDateString("en-IN", {
-        day: "2-digit",
-        month: "short",
-      });
-
-      dayMap[key] = 0;
-    }
-
-    items.forEach((e) => {
-      const key = new Date(e.created_at).toLocaleDateString(
-        "en-IN",
-        {
-          day: "2-digit",
-          month: "short",
-        }
-      );
-
-      if (key in dayMap) {
-        dayMap[key]++;
-      }
-    });
-
-    setBuyNowGraphData({
-      labels: Object.keys(dayMap),
-      values: Object.values(dayMap),
-    });
-  }
-}, [range]);
+  // Cards, graphs, pages and funnel use one bounded snapshot and one definition.
+  const loadDashboardAnalytics = useCallback(async () => {
+    const request=++analyticsRequest.current;
+    try {
+      const response=await fetch(`/api/analytics/dashboard?days=${range}&group=${resolvedGraphGroupBy}`,{cache:"no-store"});
+      if(!response.ok)throw new Error("Analytics could not be loaded. Retry or choose a shorter range.");
+      const data:DashboardSummary=await response.json();
+      if(request!==analyticsRequest.current)return;
+      setAnalyticsError(null);
+      setMetrics(prev=>({...data.metrics,online:prev.online}));
+      setSidebarStats(prev=>({...prev,visitors:data.metrics.visitors,sessions:data.metrics.sessions,events:data.metrics.events}));
+      setProductViews(data.productViews);
+      setPvData(data.charts.pageviews);setProductViewGraphData(data.charts.productViews);
+      setAddToCartGraphData(data.charts.atc);setCheckoutGraphData(data.charts.checkouts);setPurchaseGraphData(data.charts.purchases);
+      setButtonClickGraphData(data.charts.buttonClicks);setTotalEventsGraphData(data.charts.events);setBuyNowGraphData(data.charts.buyNow);
+      setScroll25GraphData(data.charts.scroll25);setScroll50GraphData(data.charts.scroll50);setScroll75GraphData(data.charts.scroll75);setScroll100GraphData(data.charts.scroll100);
+      setFunnelData(data.funnel);setPagesData(data.pages);setScrollDepth(data.scrollDepth);
+      setDevices(data.dimensions.devices);setBrowsers(data.dimensions.browsers);setOsData(data.dimensions.os);
+      setSources({sources:data.dimensions.sources,mediums:data.dimensions.mediums,campaigns:data.dimensions.campaigns,referrers:data.dimensions.referrers});
+    }catch(error){if(request===analyticsRequest.current)setAnalyticsError(error instanceof Error?error.message:"Analytics unavailable");}
+  }, [range,resolvedGraphGroupBy]);
   const pvHeading = (() => {
     switch (range) {
       case 1:
@@ -3156,67 +1677,46 @@ const loadBuyNowChart = useCallback(async () => {
         return `PAGE VIEWS — LAST ${range} DAYS`;
     }
   })();
-   // ── SPARKLINES (7-day daily trend per metric) ──
   const loadSparks = useCallback(async () => {
-    const sinceIso = rangeStart(7); // sparkline always shows last 7 days
-    const { data } = await supabase
-      .from("analytics_events")
-      .select("event_name, created_at")
-      .gte("created_at", sinceIso);
-    const days: string[] = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(); d.setDate(d.getDate() - i);
-      days.push(d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" }));
-    }
-    const blank = () => days.reduce((o, k) => ({ ...o, [k]: 0 }), {} as Record<string, number>);
-    const pv = blank(), ev = blank(), atc = blank(), co = blank(), pur = blank();
-    (data || []).forEach(e => {
-      const k = new Date(e.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
-      if (!(k in ev)) return;
-      ev[k]++;
-      if (e.event_name === "page_view") pv[k]++;
-      else if (e.event_name === "add_to_cart") atc[k]++;
-      else if (e.event_name === "checkout_started") co[k]++;
-      else if (e.event_name.startsWith("purchase")) pur[k]++;
-    });
-    setSparks({
-      pageviews: Object.values(pv),
-      events: Object.values(ev),
-      atc: Object.values(atc),
-      checkouts: Object.values(co),
-      purchases: Object.values(pur),
-    });
+    try {
+      const response=await fetch("/api/analytics/dashboard?days=7&group=day",{cache:"no-store"});
+      if(!response.ok)return;
+      const data:DashboardSummary=await response.json();
+      setSparks({pageviews:data.charts.pageviews.values,events:data.charts.events.values,atc:data.charts.atc.values,checkouts:data.charts.checkouts.values,purchases:data.charts.purchases.values});
+    }catch{/* Optional trends never replace the main snapshot. */}
   }, []);
-
-  // ── DEVICES + BROWSERS ──
-  const loadDevicesBrowsers = useCallback(async () => {
-    const since = rangeStart(range);
-    const { data } = await supabase.from("analytics_sessions").select("device_type, browser, os").gte("last_seen_at", since);
-    const dMap: Record<string, number> = {}, bMap: Record<string, number> = {}, oMap: Record<string, number> = {};
-    (data || []).forEach(s => {
-      const dt = s.device_type || "Unknown"; dMap[dt] = (dMap[dt] || 0) + 1;
-      const br = s.browser || "Unknown";    bMap[br] = (bMap[br] || 0) + 1;
-      const o = s.os || "Unknown";          oMap[o] = (oMap[o] || 0) + 1;
-    });
-    setDevices(toBarArr(dMap));
-    setBrowsers(toBarArr(bMap));
-    setOsData(toBarArr(oMap));
-  }, [range]);
 
   // ── RIGHT NOW ──
   const loadRightNow = useCallback(async () => {
     const onlineCutoff = new Date(Date.now() - 3 * 60 * 1000).toISOString();
-    const { data: online } = await supabase.from("analytics_visitors").select("current_session_id").gte("last_seen_at", onlineCutoff);
-    setNowCount((online || []).length);
-    const fiveMin = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-    const { data: recent } = await supabase.from("analytics_events").select("page_path").eq("event_name", "page_view").gte("created_at", fiveMin);
-    let home = 0, product = 0, checkout = 0;
-    (recent || []).forEach(e => {
-      const p = e.page_path || "";
-      if (p === "/" || p === "/home") home++;
-      else if (p.includes("product") || p.includes("ghee")) product++;
-      else if (p.includes("checkout") || p.includes("cart")) checkout++;
-    });
+    const online:Array<{current_session_id:string|null}>=[];
+    for(let offset=0;;offset+=1000){
+      const {data,error}=await supabase.from("analytics_visitors").select("current_session_id").gte("last_seen_at",onlineCutoff).order("visitor_id",{ascending:true}).range(offset,offset+999);
+      if(error)return;
+      online.push(...(data||[]));
+      if(!data||data.length<1000)break;
+    }
+    setNowCount(online.length);
+    setMetrics(prev=>({...prev,online:online.length}));
+    // Retain the latest page even when a visitor keeps reading beyond three minutes.
+    const ids=[...new Set(online.map(v=>v.current_session_id).filter((id):id is string=>!!id))];
+    const latest=new Map<string,string>();
+    for(let offset=0;offset<ids.length;offset+=100){
+      const batch=ids.slice(offset,offset+100);
+      for(let page=0;;page+=1000){
+        const {data:recent,error}=await supabase.from("analytics_events").select("session_id,page_path").eq("event_name","page_view").in("session_id",batch).order("created_at",{ascending:false}).order("id",{ascending:false}).range(page,page+999);
+        if(error)return;
+        for(const e of recent||[]){if(e.session_id&&!latest.has(e.session_id))latest.set(e.session_id,e.page_path||"/");}
+        if(!recent||recent.length<1000||batch.every(id=>latest.has(id)))break;
+      }
+    }
+    let home=0,product=0,checkout=0;
+    for(const path of latest.values()){
+      const p=path.split(/[?#]/)[0];
+      if(p==="/"||p==="/home")home++;
+      else if(p.includes("product")||p.includes("ghee"))product++;
+      else if(p.includes("checkout")||p.includes("cart"))checkout++;
+    }
     setNowPages({ home, product, checkout });
   }, []);
   
@@ -3300,55 +1800,6 @@ const loadEventFeed = useCallback(async () => {
     setEventsTable(data.map(e => ({ ...e, device_type: dMap[e.session_id || ""] ?? null })));
   }, [range]);
 
-  // ── FUNNEL ──
-  // FIX: last stage was "buy_now_click", inconsistent with the "Purchases"
-  // metric card on Overview (which counts event_name ILIKE 'purchase%').
-  // Aligned both to use the same purchase event family.
-  const loadFunnel = useCallback(async () => {
-    const since = rangeStart(range);
-    const steps = [
-      { name: "Page Views",  match: (q: any) => q.eq("event_name", "page_view"),        color: "#c98a4b" },
-      { name: "Add to Cart", match: (q: any) => q.eq("event_name", "add_to_cart"),      color: "#8aa6a3" },
-      { name: "Checkout",    match: (q: any) => q.eq("event_name", "checkout_started"), color: "#d9a441" },
-      { name: "Purchase",    match: (q: any) => q.ilike("event_name", "purchase%"),     color: "#8fae6b" },
-    ];
-    const counts = await Promise.all(steps.map(s => {
-      const q = supabase.from("analytics_events").select("event_name", { count: "exact", head: true });
-      return s.match(q).gte("created_at", since);
-    }));
-    setFunnelData(steps.map((s, i) => ({ name: s.name, count: counts[i].count ?? 0, color: s.color })));
-  }, [range]);
-
-  // ── PAGES ──
-  const loadPages = useCallback(async () => {
-    const since = rangeStart(range);
-    const { data } = await supabase.from("analytics_events").select("page_path, visitor_id, event_name").gte("created_at", since);
-    const map: Record<string, { views: number; visitors: Set<string>; events: number }> = {};
-    (data || []).forEach(e => {
-      const p = e.page_path || "/";
-      if (!map[p]) map[p] = { views: 0, visitors: new Set(), events: 0 };
-      map[p].events++;
-      if (e.event_name === "page_view") map[p].views++;
-      if (e.visitor_id) map[p].visitors.add(e.visitor_id);
-    });
-    setPagesData(Object.entries(map).map(([path, d]) => ({ path, views: d.views, visitors: d.visitors.size, events: d.events })).sort((a, b) => b.views - a.views).slice(0, 20));
-  }, [range]);
-
-  // ── SOURCES ──
-  const loadSources = useCallback(async () => {
-    const since = rangeStart(range);
-    const { data } = await supabase.from("analytics_events").select("metadata").gte("created_at", since);
-    const agg = (key: string) => {
-      const m: Record<string, number> = {};
-      (data || []).forEach((e) => {
-        const meta = e.metadata as Record<string, string | null> | null;
-        const val = meta?.[key];
-        if (val) m[val] = (m[val] || 0) + 1;
-      });
-      return toBarArr(m);
-    };
-    setSources({ sources: agg("utm_source"), mediums: agg("utm_medium"), campaigns: agg("utm_campaign"), referrers: agg("referrer") });
-  }, [range]);
   // ── META ADS TRAFFIC ──
   const loadMetaTraffic = useCallback(async () => {
     try {
@@ -3382,24 +1833,6 @@ const loadEventFeed = useCallback(async () => {
       });
     }
   }, [range]);
-  // ── SCROLL DEPTH ──
-  // FIX: the tracker emits discrete events named "scroll_depth_25",
-  // "scroll_depth_50", "scroll_depth_75", "scroll_depth_100" — it does NOT
-  // store a numeric `metadata.depth` field. The old code read
-  // `metadata.depth`, which never existed, so this page was always empty.
-  // Now we bucket by the milestone encoded in the event name itself.
-  const loadScrollDepth = useCallback(async () => {
-    const since = rangeStart(range);
-    const { data } = await supabase.from("analytics_events").select("event_name").ilike("event_name", "scroll_depth_%").gte("created_at", since);
-    const buckets: Record<string, number> = { "25%": 0, "50%": 0, "75%": 0, "100%": 0 };
-    (data || []).forEach(e => {
-      const milestone = e.event_name.replace("scroll_depth_", "").trim();
-      const key = `${milestone}%`;
-      if (key in buckets) buckets[key]++;
-    });
-    setScrollDepth(Object.entries(buckets).reverse().map(([pct, count]) => ({ pct, count })));
-  }, [range]);
-
   // ── REALTIME SUBSCRIPTION ──
   // FIX: was subscribed to table "events", which doesn't exist in this
   // schema — the real table is "analytics_events". Because of this, the
@@ -3411,7 +1844,7 @@ const loadEventFeed = useCallback(async () => {
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "analytics_events" }, payload => {
         const e = payload.new as EventRow;
         setEventFeed(prev => [e, ...prev].slice(0, 40));
-        setNowCount(prev => e.event_name === "page_view" ? prev + 1 : prev);
+
         loadSidebar();
         loadRightNow();
         if (selectedSessionRef.current && e.session_id === selectedSessionRef.current) {
@@ -3421,58 +1854,14 @@ const loadEventFeed = useCallback(async () => {
       .subscribe();
   }, [loadSidebar, loadRightNow]);
 
-  // ── LOAD ALL ──
- const loadAll = useCallback(async () => {
-  setRefreshing(true);
-  try {
-    await Promise.all([
-  loadMetrics(),
-  loadPvChart(),
-  loadProductViewChart(),
-  loadAddToCartChart(),
-  loadCheckoutChart(),
-  loadPurchaseChart(),
-  loadButtonClickChart(),
-  loadTotalEventsChart(),
-  loadScroll25Chart(),
-  loadScroll50Chart(),
-  loadScroll75Chart(),
-  loadScroll100Chart(),
-  loadDevicesBrowsers(),
-  loadRightNow(),
-  loadEventFeed(),
-  loadSidebar(),
-  loadMetaTraffic(),
-  loadBrevoLeads(),
-]);
-
-  } finally {
-    setRefreshing(false);
-  }
-}, [
-  loadMetrics,
-  loadPvChart,
-  loadProductViewChart,
-  loadAddToCartChart,
-  loadCheckoutChart,
-  loadPurchaseChart,
-  loadButtonClickChart,
-  loadTotalEventsChart,
-  loadScroll25Chart,
-  loadScroll50Chart,
-  loadScroll75Chart,
-  loadScroll100Chart,
-  loadDevicesBrowsers,
-  loadRightNow,
-  loadEventFeed,
-  loadSidebar,
-  loadMetaTraffic,
-  loadBrevoLeads,
-]);
+  const loadAll = useCallback(async () => {
+    setRefreshing(true);
+    try { await Promise.all([loadDashboardAnalytics(),loadSidebar(),loadRightNow(),loadEventFeed(),loadMetaTraffic(),loadBrevoLeads(),loadLiveUsers()]); }
+    finally { setRefreshing(false); }
+  },[loadDashboardAnalytics,loadSidebar,loadRightNow,loadEventFeed,loadMetaTraffic,loadBrevoLeads,loadLiveUsers]);
   // ── INIT ──
   useEffect(() => {
     checkConn();
-    loadAll();
     subscribe();
     loadLiveUsers();
     loadSparks();
@@ -3484,7 +1873,11 @@ const loadEventFeed = useCallback(async () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => { loadAll(); }, [range, loadAll]);
+  useEffect(() => {
+    loadAll();
+    const timer=setInterval(()=>loadAll(),30000);
+    return ()=>{clearInterval(timer);analyticsRequest.current++;};
+  }, [loadAll]);
    useEffect(() => {
     const v = liveVisitors.find(x => x.visitor_id === selectedLiveVisitor);
     selectedSessionRef.current = v?.current_session_id ?? null;
@@ -3494,12 +1887,8 @@ const loadEventFeed = useCallback(async () => {
   useEffect(() => {
     if (activePage === "visitors")    loadVisitors();
     if (activePage === "events")      loadEventsTable();
-    if (activePage === "funnel")      loadFunnel();
-    if (activePage === "pages")       loadPages();
-    if (activePage === "sources")     loadSources();
-    if (activePage === "scrolldepth") loadScrollDepth();
     if (activePage === "realtime") {loadEventFeed();loadVisitors();}
-  }, [activePage, loadVisitors, loadEventsTable, loadFunnel, loadPages, loadSources, loadScrollDepth, loadEventFeed]);
+  }, [activePage, loadVisitors, loadEventsTable, loadEventFeed]);
 
   // ── Chart config ──
   const chartData = {
@@ -3851,10 +2240,11 @@ const buyNowChartData = {
   // RENDER
   // ══════════════════════════════════════
   return (
-    <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: "var(--bg)" }}>
+    <div className="dashboard-shell" style={{ display: "flex", height: "100dvh", overflow: "hidden", background: "var(--bg)" }}>
 
       {/* ── SIDEBAR (left) ── */}
-      <aside style={{ order: 0, width: 200, minWidth: 200, background: "var(--bg2)", borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
+      {mobileMenuOpen && <button className="dashboard-backdrop" aria-label="Close navigation" onClick={()=>setMobileMenuOpen(false)} />}
+      <aside id="dashboard-navigation" className={`dashboard-sidebar ${mobileMenuOpen?"is-open":""}`} style={{ order: 0, width: 200, minWidth: 200, background: "var(--bg2)", borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
         <div style={{ padding: "16px 18px 14px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <img src="/uppermost-analytics-logo.png" alt="Uppermost" style={{ width: "100%", maxWidth: 150, height: "auto", objectFit: "contain", display: "block", margin: "0 auto" }} />
         </div>
@@ -3873,7 +2263,7 @@ const buyNowChartData = {
   ["metaAds", "Meta Ads", Infinity],
   ["graphs", "Special Graphs", BarChart3],
 ] as [Page, string, any][]).map(([page, label, Icon]) => (
-    <div key={page} onClick={() => setActivePage(page)} style={{
+    <button key={page} aria-current={activePage===page?"page":undefined} onClick={() => {setActivePage(page);setMobileMenuOpen(false);}} style={{ width:"100%",border:0,textAlign:"left",minHeight:44,
               display: "flex", alignItems: "center", gap: 10, padding: "8px 18px",
               cursor: "pointer", color: activePage === page ? "var(--text)" : "var(--muted)",
               background: activePage === page ? "rgba(124,106,247,0.12)" : "transparent",
@@ -3908,7 +2298,7 @@ const buyNowChartData = {
   </span>
 )}
               {label}
-            </div>
+            </button>
           ))}
         </nav>
 
@@ -3932,16 +2322,17 @@ const buyNowChartData = {
       </aside>
 
       {/* ── MAIN (right) ── */}
-      <div style={{ order: 1, flex: 1, width: "auto", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", minHeight: 170,display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div className="dashboard-main" style={{ order: 1, flex: 1, width: "auto", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", minHeight: 170,display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
         {/* Topbar */}
-        <div style={{ padding: "14px 24px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--bg2)" }}>
-          <div>
-            <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: "-0.01em" }}>Analytics Overview</div>
-            <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>uppermost.store — Live tracking dashboard</div>
+        <div className="dashboard-topbar" style={{ padding: "14px 24px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--bg2)" }}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <button className="dashboard-menu" aria-label={mobileMenuOpen?"Close navigation":"Open navigation"} aria-expanded={mobileMenuOpen} aria-controls="dashboard-navigation" onClick={()=>setMobileMenuOpen(open=>!open)}>{mobileMenuOpen?<X size={22}/>:<Menu size={22}/>}</button>
+            <div><div style={{ fontSize: 17, fontWeight: 600, letterSpacing: "-0.01em" }}>Analytics Overview</div>
+            <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>uppermost.store — Live tracking dashboard</div></div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ display: "flex", gap: 4 }}>
+          <div className="dashboard-toolbar" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div className="dashboard-ranges" style={{ display: "flex", gap: 4 }}>
               {[{ d: 1, l: "Today" }, { d: 2, l: "48H" }, { d: 7, l: "7D" }, { d: 30, l: "30D" }, { d: 90, l: "90D" }].map(({ d, l }) => (
                 <button key={d} onClick={() => setRange(d)} style={{
                   padding: "5px 11px", fontSize: 11, borderRadius: 6,
@@ -3956,6 +2347,7 @@ const buyNowChartData = {
               onClick={() => loadAll()}
               disabled={refreshing}
               title="Refresh"
+              aria-label="Refresh analytics"
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -3991,7 +2383,8 @@ const buyNowChartData = {
         </div>
 
         {/* Content */}
-        <div style={{ flex: 1, width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 18 }}>
+        <div className="dashboard-content" style={{ flex: 1, width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 18 }}>
+          {analyticsError && <div role="alert" style={{padding:14,border:"1px solid var(--red)",borderRadius:8,color:"var(--red)"}}>{analyticsError} Displayed figures may be from the previous snapshot.</div>}
 {/* — LEMLIST — */}
 {activePage === "lemlist" && (
   <>
@@ -4244,7 +2637,7 @@ const buyNowChartData = {
 </div>
 
 <Panel title="Facebook vs Instagram" badge="Breakdown">
-  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14 }}>
+  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 260px), 1fr))", gap: 14 }}>
     <PlatformCard
       title="Facebook"
       reach={Number((metaStats as any).facebookReach || 0)}
@@ -4478,7 +2871,7 @@ const buyNowChartData = {
       style={{
         width: "100%",
         display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+        gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))",
         gap: 12,
         boxSizing: "border-box",
       }}
@@ -4594,7 +2987,7 @@ const buyNowChartData = {
 )}
 </div>
 </div>
-{/* ADD TO CART */}
+{/* ORDER INTENT ACTIONS */}
 <div
   style={{
     minHeight: 260,
@@ -4619,7 +3012,7 @@ const buyNowChartData = {
         color: "var(--text)",
       }}
     >
-      Add to Cart
+      Order Intent Actions
     </div>
 
     <div
@@ -4684,7 +3077,7 @@ const buyNowChartData = {
         color: "var(--text)",
       }}
     >
-      Checkout
+      Prepared Checkouts
     </div>
 
     <div
@@ -4749,7 +3142,7 @@ const buyNowChartData = {
         color: "var(--text)",
       }}
     >
-      Purchases
+      Confirmed Sales
     </div>
 
     <div
@@ -5219,7 +3612,7 @@ const buyNowChartData = {
         color: "var(--text)",
       }}
     >
-      Buy Now Clicks
+      Buy navigation intent
     </div>
 
     <div
@@ -5267,15 +3660,16 @@ const buyNowChartData = {
 )}
           {/* ══ OVERVIEW ══ */}
           {activePage === "overview" && <>
+            <details style={{fontSize:12,lineHeight:1.6,color:"var(--muted)"}}><summary style={{cursor:"pointer",minHeight:32}}>How these metrics are counted</summary><p>All activity uses the selected IST range; 48H is rolling. New/returning visitors use first-seen history (unknown history is unclassified). Order intent counts supported buttons, not purchases. Prepared checkouts count server sessions created in range. Confirmed sales count paid orders by paid time, including renewals. Browser tracking can be incomplete.</p></details>
    
-       <div
+       <div className="dashboard-metrics-grid"
       style={{
     width: "100%",
     maxWidth: "100%",
     minWidth: 0,
     boxSizing: "border-box",
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(240px,1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 240px), 1fr))",
     gap: 12,
   }}
 
@@ -5322,10 +3716,10 @@ const buyNowChartData = {
 />
 
 <MetricCard
-  label="Sessions"
+  label="Recorded sessions"
   value={metrics.sessions}
   color="var(--blue)"
-  badge="Live"
+  badge="Selected range"
   icon={<Monitor size={18} color="#8aa6a3" />}
 />
 
@@ -5333,7 +3727,7 @@ const buyNowChartData = {
   label="Page Views"
   value={metrics.pageviews}
   color="var(--amber)"
-  badge="Live"
+  badge="Selected range"
   spark={sparks.pageviews}
   icon={<Eye size={18} color="#d9a441" />}
 />
@@ -5342,39 +3736,39 @@ const buyNowChartData = {
   label="Total Events"
   value={metrics.events}
   color="var(--orange)"
-  badge="Live"
+  badge="Selected range"
   spark={sparks.events}
   icon={<BarChart3 size={18} color="#c98a4b" />}
 />
 
 <MetricCard
-  label="Add To Cart"
+  label="Order intent actions"
   value={metrics.atc}
   color="var(--amber)"
-  badge="Live"
+  badge="Selected range"
   icon={<MousePointerClick size={18} color="#d9a441" />}
 />
 
 <MetricCard
-  label="Checkouts"
+  label="Prepared checkouts"
   value={metrics.checkouts}
   color="var(--blue)"
-  badge="Live"
+  badge="Selected range"
   icon={<MousePointerClick size={18} color="#8aa6a3" />}
 />
 
 <MetricCard
-  label="Purchases"
+  label="Confirmed sales"
   value={metrics.purchases}
   color="var(--green)"
-  badge="Live"
+  badge="Selected range"
   icon={<Mail size={18} color="#8fae6b" />}
 />
             </div>
-             <div style={{ width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", display: "grid", gridTemplateColumns: "minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr)", gap: 14 }}>
+             <div className="dashboard-overview-grid" style={{ width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", display: "grid", gridTemplateColumns: "minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr)", gap: 14 }}>
               <Panel title="⚡ Right Now" badge="● Live">
                 <div style={{ fontSize: 56, fontWeight: 800, letterSpacing: "-0.04em", color: "var(--green)", lineHeight: 1, textAlign: "center", padding: "10px 0", fontVariantNumeric: "tabular-nums" }}>{nowCount}</div>
-                <div style={{ textAlign: "center", fontSize: 11, color: "var(--muted)", marginBottom: 14 }}>Visitors on site</div>
+                <div style={{ textAlign: "center", fontSize: 11, color: "var(--muted)", marginBottom: 14 }}>Visitors active in the last 3 minutes</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
                   {(() => {
                     const totalNow = nowPages.home + nowPages.product + nowPages.checkout;
@@ -5416,14 +3810,8 @@ const buyNowChartData = {
                 </div>
 
               </Panel>
-              <Panel title="Conversion Funnel" badge="● Live">
-                <OverviewFunnelKpi
-                  visitors={metrics.visitors}
-                  productViews={productViews}
-                  atc={metrics.atc}
-                  checkouts={metrics.checkouts}
-                  purchases={metrics.purchases}
-                />
+              <Panel title="Observed visitor journey" badge="Selected range">
+                <OverviewFunnelKpi steps={funnelData} />
               </Panel>
               <Panel title="Meta Ads Traffic">
                 {!metaStats.connected ? (
@@ -5508,9 +3896,9 @@ const buyNowChartData = {
               </Panel>
             
             
-            <div style={{ width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", display: "grid", gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1fr)", gap: 14 }}>
+            <div style={{ width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 320px), 1fr))", gap: 14 }}>
               <Panel title="Devices & Operating Systems">
-                <div style={{ width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 0, minHeight: 260 }}>
+                <div style={{ width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 240px), 1fr))", gap: 0, minHeight: 260 }}>
                   <div style={{ paddingRight: 14, borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 12 }}>
                      <div style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: "var(--muted)", textTransform: "uppercase" }}><Monitor size={15} color="#d9a441" /><span>Device Split</span></div>{devices.length === 0
                       ? <div style={{ textAlign: "center", padding: 24, color: "var(--dim)", fontSize: 12 }}>No data yet</div>
@@ -5545,8 +3933,8 @@ const buyNowChartData = {
          {activePage === "realtime" && <>
   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12 }}>
     <MetricCard label="Online Right Now" value={metrics.online} color="var(--green)" badge="Real-time" />
-    <MetricCard label="Active Sessions" value={metrics.sessions} color="var(--blue)" badge="Live" />
-    <MetricCard label="Page Views Today" value={metrics.pageviews} color="var(--accent)" badge="Live" />
+    <MetricCard label="Recorded sessions" value={metrics.sessions} color="var(--blue)" badge="Selected range" />
+    <MetricCard label="Page Views" value={metrics.pageviews} color="var(--accent)" badge="Selected range" />
     <MetricCard label="Unique Visitors" value={metrics.visitors} color="var(--accent)" badge="Selected range" />
     <MetricCard label="Returning Visitors" value={metrics.returningUniqueVisitors} color="var(--blue)" badge="Selected range" />
   </div>
@@ -5642,62 +4030,7 @@ const buyNowChartData = {
 </>}
           {/* ══ FUNNEL ══ */}
           {activePage === "funnel" && (
-            <Panel title="Conversion Funnel">
-              {funnelData.length === 0 ? <Spinner /> : (() => {
-                const top = funnelData[0]?.count || 1;
-                const overall = funnelData.length ? Math.round((funnelData[funnelData.length - 1].count / top) * 100) : 0;
-                let biggestLeak = "—", maxDrop = -1;
-                for (let i = 1; i < funnelData.length; i++) {
-                  const prev = funnelData[i - 1].count || 1;
-                  const drop = Math.round((1 - funnelData[i].count / prev) * 100);
-                  if (drop > maxDrop) { maxDrop = drop; biggestLeak = `${funnelData[i - 1].name.split(" ")[0]} → ${funnelData[i].name.split(" ")[0]}`; }
-                }
-                return <>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center", padding: "8px 0" }}>
-                    {funnelData.map((step, i) => {
-                      const convPct = i === 0 ? 100 : top ? Math.round(step.count / top * 100) : 0;
-                      const inset = i * 13;
-                      const taper = 6 + i * 6;
-                      const pctColor = convPct >= 75 ? "#8fae6b" : convPct >= 40 ? "#d9a441" : convPct >= 15 ? "#c98a4b" : "#c4633f";
-                      const osTotalSessions = osData.reduce((sum, item) => sum + item.count, 0);
-                      const topOperatingSystem = osData.length? [...osData].sort((a, b) => b.count - a.count)[0]: null;
-                      const topOperatingSystemPercent =topOperatingSystem && osTotalSessions? Math.round((topOperatingSystem.count / osTotalSessions) * 100): 0;
-                     
-                      return (
-                        <div key={step.name} style={{ width: "100%" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-                            <div style={{ width: 90, textAlign: "right", fontSize: 12, color: "var(--muted)" }}>{step.name}</div>
-                            <div style={{ flex: 1, position: "relative", height: 50, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                              <div style={{ position: "absolute", left: `${inset}%`, right: `${inset}%`, height: "100%", background: step.color, borderRadius: 6, clipPath: `polygon(0 0, 100% 0, ${100 - taper}% 100%, ${taper}% 100%)` }} />
-                              <span style={{ position: "relative", color: "#fff", fontWeight: 700, fontSize: 15, zIndex: 1 }}>{step.count}</span>
-                            </div>
-                            <div style={{ width: 70, textAlign: "left" }}>
-                              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text)", fontVariantNumeric: "tabular-nums" }}>{step.count}</div>
-                              <div style={{ fontSize: 10, color: pctColor }}>{convPct}%</div>
-                            </div>
-                          </div>
-                          {i < funnelData.length - 1 && <div style={{ textAlign: "center", color: "var(--dim)", fontSize: 10, margin: "2px 0" }}>▼</div>}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--border)", display: "flex", justifyContent: "space-around" }}>
-                    <div style={{ textAlign: "center" }}>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: "var(--green)" }}>{overall}%</div>
-                      <div style={{ fontSize: 9, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 2 }}>Overall Conv.</div>
-                    </div>
-                    <div style={{ textAlign: "center" }}>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: "var(--red)" }}>-{100 - overall}%</div>
-                      <div style={{ fontSize: 9, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 2 }}>Total Drop-off</div>
-                    </div>
-                    <div style={{ textAlign: "center" }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "var(--amber)" }}>{biggestLeak}</div>
-                      <div style={{ fontSize: 9, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 2 }}>Biggest Leak</div>
-                    </div>
-                  </div>
-                </>;
-              })()}
-            </Panel>
+            <Panel title="Observed visitor journey"><OverviewFunnelKpi steps={funnelData} /></Panel>
           )}
 
           {/* ══ PAGES ══ */}
@@ -5871,7 +4204,7 @@ const buyNowChartData = {
 
           {/* ══ SOURCES ══ */}
           {activePage === "sources" && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))", gap: 14 }}>
               <Panel title="UTM Sources"><BarList items={sources.sources} /></Panel>
               <Panel title="UTM Mediums"><BarList items={sources.mediums} /></Panel>
               <Panel title="UTM Campaigns"><BarList items={sources.campaigns} /></Panel>

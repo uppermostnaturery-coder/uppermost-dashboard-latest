@@ -342,5 +342,6 @@ export async function prepareCheckout(input: PrepareInput, idempotencyKey: strin
       interval_days: recurringGroup?.interval_days ?? null,
     },
     subscription_id: subscriptionId,
+    next: { type: "EXPERIENCE" as const, url: `/experience?t=${experienceToken}` },
   };
 }

@@ -2,6 +2,7 @@
 
 **Status:** generated from implemented code  
 **Generated:** 25 September 2026
+**Updated:** 21 October 2026 — local prepare-time fallback; release approval pending
 **Frontend:** Framer  
 **Backend:** the deployed Next.js/Vercel origin  
 **Companion types:** `docs/FRAMER_COMMERCE_TYPES.ts`
@@ -9,6 +10,13 @@
 This document describes the commerce API that is implemented now. It is not a proposal. When this document differs from an older draft, Framer must follow this document until the canonical architecture and API specifications are reconciled.
 
 No secret belongs in Framer. Framer may receive the Razorpay **key ID**, which is public. It must never receive the Razorpay key secret, webhook secrets, recurring tokens, Shiprocket credentials, the commerce token pepper, the cron secret, or the Supabase service-role key.
+
+## Checkout redirect work — release status, 21 October 2026
+
+- Backend `fix/checkout-experience-navigation`: prepare returns the existing experience token in `next.url`; optional public typing supports old idempotent replays. Existing verify/status behavior is unchanged. This is a local additive fallback, not a proven root-cause fix for the reported order. Backend tests: 90 passed; typecheck passed; production build passed with dummy local Supabase configuration. No migration is needed for these changes.
+- Frontend `fix/checkout-navigation-recovery`: replaces the completed checkout history entry, recovers restored checkout state, exposes a direct paid-order link after stalled navigation, polls unresolved/missing-URL verification responses, and discards responses from stopped polling generations. Six isolated browser scenarios and a focused TypeScript check passed. Mocked browser tests do not establish the incident's exact cause or prove mobile Safari/provider behavior in production.
+- After explicit user approval, `CheckoutDrawer.tsx` was pushed to Framer `main` and published to production as version `c2d30ff30` at https://www.uppermost.store. Framer readback matched the local source and returned no type errors; the published bundle contains the navigation replacement, page-restore handler and direct-order-link recovery. The user approved merging the backend prepare-URL fallback and analytics corrections into `main` and deploying Vercel production on 21 October 2026. Release success must be checked against the GitHub/Vercel deployment status; approval alone does not establish deployment. No staging branch or environment was changed.
+- Production order `UPM-20261019-000085` had a saved `CONFIRMED` verify response with the exact correct experience URL at 21:11:49.780 IST on 19 October. Analytics reported that token's `/experience` URL at 21:11:53.500 IST. These records contradict a missing-URL verification diagnosis for that order, but do not prove successful visual rendering. Browser Back restored the frozen overlay in an isolated reproduction; that does not prove Ankur used Back. Vercel logs remain unreviewed pending connection.
 
 ## 1. Base URL, JSON, money, and time
 
@@ -800,7 +808,8 @@ Mixed/subscription response:
     "mandate_max_amount_paise": 1150000,
     "interval_days": 30
   },
-  "subscription_id": "55555555-5555-4555-8555-555555555555"
+  "subscription_id": "55555555-5555-4555-8555-555555555555",
+  "next": { "type": "EXPERIENCE", "url": "/experience?t=exp_high_entropy_token" }
 }
 ```
 
@@ -831,7 +840,8 @@ Pure buy-once response:
     "mandate_max_amount_paise": null,
     "interval_days": null
   },
-  "subscription_id": null
+  "subscription_id": null,
+  "next": { "type": "EXPERIENCE", "url": "/experience?t=exp_high_entropy_token" }
 }
 ```
 
@@ -840,6 +850,7 @@ Nullable/optional behavior:
 - `razorpay.customer_id` is present for subscription/mixed recurring authorization and absent for pure buy once.
 - `display.mandate_max_amount_paise` and `display.interval_days` are `null` for pure buy once.
 - `subscription_id` is always a key in the success JSON: UUID for subscription/mixed, `null` for buy once.
+- `next` is present for every new prepare success. Keep its URL within this checkout attempt and use it only after verify/status reports `CONFIRMED` or `ACTIVATION_PENDING`, if that response lacks its own `next.url`. Preparation remains `CHECKOUT_READY`; this URL is not proof of payment. Discard the fallback when starting another attempt. Existing idempotency records replay their original response and may lack this additive field.
 
 ### Razorpay Checkout mapping
 
@@ -1380,7 +1391,7 @@ Implemented drift or narrower behavior:
 3. **Carts are not part of the route flow.** `carts` and `cart_items` tables exist, but quote/prepare persist directly to `commerce_quotes` and checkout/order records.
 4. **Experience state is not fully normalized.** `/api/experience` returns `orders.status` directly. For example, a pending order can return `PAYMENT_PENDING`, which is not the declared normalized state `PENDING`.
 5. **Experience messaging is coarse.** It selects only `PAYMENT_CONFIRMED` when order status is `CONFIRMED`; otherwise `PAYMENT_PENDING`. It does not currently select mandate/renewal action-required copy from subscription or mandate status.
-6. **Experience token timing differs.** The token is created during prepare, not after confirmation. It is only returned to Framer through status `next` after `CONFIRMED` or `ACTIVATION_PENDING`, and only its hash is stored on the order.
+6. **Experience token timing differs.** The token is created during prepare, persisted in raw form on the server-only checkout session, and stored as a hash on the order. Prepare now returns it in `next.url` as an attempt-scoped fallback; status/verify also return it after `CONFIRMED` or `ACTIVATION_PENDING`. Framer must not navigate using the fallback until one of those verified states is received.
 7. **`ACTIVATION_PENDING` exposes experience navigation.** The architecture emphasizes activation only after payment plus usable token; current status correctly keeps the state pending but still returns `next.url`.
 8. **AWB is not transformed.** The response field is named `awb_masked_or_safe`, but actual code returns the stored `shipments.awb_code` unchanged.
 9. **Billing flag has no behavior.** `billing_same_as_shipping` is required but is not used; the backend always persists/ships to `shipping_address` and has no separate billing-address contract.
