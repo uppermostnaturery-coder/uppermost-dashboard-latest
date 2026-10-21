@@ -60,10 +60,13 @@ export function legacyVisitorLinks(events: JourneyEvent[], checkouts: Array<{
     return new Map([...links].map(([id, visitors]) => [id, [...visitors]]));
 }
 function clean(value: unknown) { return typeof value === "string" ? value.trim().slice(0, 100) : ""; }
+export function publicCustomer(customer: JourneyCustomer | undefined) {
+ const email=clean(customer?.email),at=email.lastIndexOf("@"),digits=clean(customer?.phone).replace(/\D/g,"");
+ return {name:customer?.name?`${customer.name.trim().charAt(0)}***`:"Customer",email:at>0?`${email.charAt(0)}***${email.slice(at)}`:null,phone:digits.length>=4?`••••${digits.slice(-4)}`:null};
+}
 export function publicOrder(order: JourneyOrder, customer: JourneyCustomer | undefined, items: JourneyItem[], visitorIds: string[]) {
-    const email = clean(customer?.email), at = email.lastIndexOf("@"), digits = clean(customer?.phone).replace(/\D/g, "");
     return { reference: order.order_number, paid_at: order.paid_at, total_paise: Number(order.total_paise), kind: order.order_kind, pricing: order.subtotal_paise == null ? null : {subtotal_paise:Number(order.subtotal_paise),discount_paise:Number(order.discount_paise??0),shipping_paise:Number(order.shipping_paise??0),tax_paise:Number(order.tax_paise??0)},
-        customer: { name: customer?.name ? `${customer.name.trim().charAt(0)}***` : "Customer", email: at > 0 ? `${email.charAt(0)}***${email.slice(at)}` : null, phone: digits.length >= 4 ? `••••${digits.slice(-4)}` : null, city: clean(order.address_snapshot?.city) || null, state: clean(order.address_snapshot?.state) || null },
+        customer: {...publicCustomer(customer),city:clean(order.address_snapshot?.city)||null,state:clean(order.address_snapshot?.state)||null},
         items: items.filter(i => i.order_id === order.id).map(i => ({ product: i.product_name, variant: i.variant_name, quantity: i.quantity, purchase_mode: i.purchase_mode, total_paise: Number(i.line_total_paise) })), visitor_ids: [...new Set(visitorIds)] };
 }
 export function journeyTimeline(events: JourneyEvent[]) {

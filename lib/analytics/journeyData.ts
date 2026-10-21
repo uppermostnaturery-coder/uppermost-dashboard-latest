@@ -1,8 +1,9 @@
 import { supabase } from "@/lib/supabase";
 import { supabaseAdmin as admin } from "@/lib/supabaseAdmin";
 import { analyticsRows, analyticsBatches } from "./read";
+import {visitorEngagement} from "./engagement";
 import { dashboardWindow } from "./summary";
-import { journeyTimeline, legacyVisitorLinks, productionJourneyToken, publicOrder, type JourneyOrder, type JourneyCustomer, type JourneyItem, type JourneyEvent } from "./journeys";
+import { journeyTimeline, legacyVisitorLinks, productionJourneyToken, publicOrder, publicCustomer, type JourneyOrder, type JourneyCustomer, type JourneyItem, type JourneyEvent } from "./journeys";
 type Link = {
     customer_id: string;
     visitor_id: string;
@@ -75,11 +76,32 @@ export async function orderOverview() {
         return { confirmed_orders: countResult.count ?? 0, scope: "All time", list_limit: 50, orders: [], orders_error: "Order details are temporarily unavailable; the confirmed count remains valid." };
     }
 }
+async function visitorContacts(ids:string[]) {
+ const [links,views]=await Promise.all([
+  analyticsBatches<Link>(ids,(batch,from,to)=>admin.from("analytics_customer_links").select("customer_id,visitor_id,checkout_session_id").in("visitor_id",batch).order("checkout_session_id").range(from,to),"Visitor identity links"),
+  analyticsBatches<JourneyEvent>(ids,(batch,from,to)=>supabase.from("analytics_events").select("id,visitor_id,page_path,page_url,event_name,created_at,session_id").in("visitor_id",batch).eq("event_name","page_view").like("page_path","/experience%").order("id").range(from,to),"Historical browser associations")
+ ]);
+ const tokens=[...new Set(views.map(productionJourneyToken).filter((v):v is string=>!!v&&/^[A-Za-z0-9_-]{4,200}$/.test(v)))];
+ const checkouts=await analyticsBatches<{experience_token:string,customer_id:string}>(tokens,(batch,from,to)=>admin.from("checkout_sessions").select("id,customer_id,experience_token").in("experience_token",batch).order("id").range(from,to),"Historical identities");
+ const associations=new Map<string,Set<string>>();
+ const associate=(visitor:string,customer:string)=>{const set=associations.get(visitor)||new Set<string>();set.add(customer);associations.set(visitor,set);};
+ links.forEach(l=>associate(l.visitor_id,l.customer_id));
+ const byToken=new Map(checkouts.map(c=>[c.experience_token,c.customer_id]));
+ for(const view of views){const token=productionJourneyToken(view),customer=token?byToken.get(token):null;if(view.visitor_id&&customer)associate(view.visitor_id,customer);}
+ const customers=await analyticsBatches<JourneyCustomer&{id:string}>([...new Set([...associations.values()].flatMap(set=>[...set]))],(batch,from,to)=>admin.from("customers").select("id,name,email,phone").in("id",batch).order("id").range(from,to),"Masked visitor contacts");
+ const byId=new Map(customers.map(c=>[c.id,c]));
+ return new Map([...associations].map(([id,set])=>[id,[...set].filter(id=>byId.has(id)).map(id=>publicCustomer(byId.get(id)))]));
+}
 export async function visitorOverview(days: number) {
-    const window = dashboardWindow(days);
-    const result = await supabase.from("analytics_visitors").select("visitor_id,first_seen_at,last_seen_at,device_type,browser", { count: "exact" }).gte("last_seen_at", window.since).lte("last_seen_at", window.until).order("last_seen_at", { ascending: false }).order("visitor_id").limit(100);
-    const visitors = await check(result, "Visitors") as Visitor[], sessions = await sessionsFor(visitors.map(v => v.visitor_id));
-    return { window, total: result.count ?? visitors.length, list_limit: 100, visitors: visitors.map(v => ({ ...v, recorded_visits: sessions.filter(s => s.visitor_id === v.visitor_id).length })) };
+ const window=dashboardWindow(days);
+ const result=await supabase.from("analytics_visitors").select("visitor_id,current_session_id,first_seen_at,last_seen_at,device_type,browser,os,city,country",{count:"exact"}).gte("last_seen_at",window.since).lte("last_seen_at",window.until).order("last_seen_at",{ascending:false}).order("visitor_id").limit(100);
+ const visitors=await check(result,"Visitors") as (Visitor&{os:string|null,city:string|null,country:string|null})[],ids=visitors.map(v=>v.visitor_id);
+ const [sessions,events,identity]=await Promise.all([
+  sessionsFor(ids),
+  analyticsBatches<JourneyEvent>(ids,(batch,from,to)=>supabase.from("analytics_events").select("id,event_name,visitor_id,session_id,page_path,created_at,metadata").in("visitor_id",batch).gte("created_at",window.since).lte("created_at",window.until).order("created_at").order("id").range(from,to),"Visitor engagement"),
+  visitorContacts(ids).then(contacts=>({contacts,error:null as string|null})).catch(()=>({contacts:new Map<string,ReturnType<typeof publicCustomer>[]>(),error:"Associated contacts are temporarily unavailable."}))
+ ]);
+ return {window,total:result.count??visitors.length,list_limit:100,contacts_error:identity.error,visitors:visitors.map(v=>({...v,recorded_visits:sessions.filter(s=>s.visitor_id===v.visitor_id).length,contacts:identity.contacts.get(v.visitor_id)||[],engagement:visitorEngagement(events.filter(e=>e.visitor_id===v.visitor_id))}))};
 }
 export async function visitorJourney(visitorId: string, history: string, offset: number) {
     const now = new Date(), window = history === "all" ? { since: "1970-01-01T00:00:00.000Z", until: now.toISOString() } : dashboardWindow(Number(history), now);

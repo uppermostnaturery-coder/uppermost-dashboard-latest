@@ -48,6 +48,25 @@ beforeEach(() => {
     };
 });
 describe("public order and journey API boundaries", () => {
+    it("shows masked historical contacts and selected-range engagement in visitor details", async()=>{
+        const at=new Date().toISOString();
+        db.tables.analytics_visitors[0].last_seen_at=at;
+        db.tables.analytics_events.push({id:100,event_name:"button_click",visitor_id:visitor,session_id:session,page_path:"/ghee",created_at:at,metadata:{text:"Pre-order"}});
+        const response=await GET(new Request("https://dashboard.test/api/analytics/journeys?view=visitors&days=7")),body=await response.json();
+        expect(response.status).toBe(200);
+        expect(body.visitors[0].contacts[0]).toEqual({name:"A***",email:"a***@example.com",phone:"••••6461"});
+        expect(body.visitors[0].engagement.clicks).toBe(1);
+        expect(body.visitors[0].engagement.observed_seconds).toBeNull();
+        for(const secret of ["Ankur Secret","ankur.secret@example.com","+919999996461","exp_private","customer-private","579D Secret Street"])
+            expect(JSON.stringify(body)).not.toContain(secret);
+        expect(db.writes).toEqual([]);
+    });
+    it("keeps visitor activity visible with an explicit notice when private associations fail",async()=>{
+        db.tables.analytics_visitors[0].last_seen_at=new Date().toISOString();db.fail="analytics_customer_links";
+        const body=await(await GET(new Request("https://dashboard.test/api/analytics/journeys?view=visitors&days=7"))).json();
+        expect(body.contacts_error).toBeTruthy();expect(body.visitors[0].contacts).toEqual([]);expect(body.visitors[0].visitor_id).toBe(visitor);
+    });
+
     it("highlights the all-time confirmed order even outside today's date range, with masked fields only", async () => {
         const response = await GET(new Request("https://dashboard.test/api/analytics/journeys?view=orders&days=1")), body = await response.json();
         expect(response.status).toBe(200);

@@ -1,3 +1,4 @@
+import {buttonInterest} from "@/lib/analytics/engagement";
 import {withObservation} from "@/lib/observability/server";
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
@@ -48,7 +49,7 @@ async function observedGET(request: Request) {
                 throw new Error("Dashboard session read failed");
             sessions.push(...(data || []));
         }
-        return NextResponse.json(summarizeDashboard({ events, visitors, sessions, checkouts, orders, days, now, group: (group as GraphGroup | null) || undefined }), { headers: { "Cache-Control": "no-store" } });
+        return NextResponse.json({...summarizeDashboard({ events, visitors, sessions, checkouts, orders, days, now, group: (group as GraphGroup | null) || undefined }),buttonInterest:buttonInterest(events)}, { headers: { "Cache-Control": "no-store" } });
     }
     catch (error) {
         console.error("Dashboard summary unavailable:", error instanceof Error ? error.message : "Unknown error");

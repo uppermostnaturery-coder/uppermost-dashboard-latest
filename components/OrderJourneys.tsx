@@ -113,10 +113,11 @@ function Journey({ visitorId, onBack }: {
   </> : null}
  </section>;
 }
-export default function OrderJourneys({ days }: {
+export default function OrderJourneys({ days, initialVisitorId=null }: {
+    initialVisitorId?:string|null;
     days: number;
 }) {
-    const [tab, setTab] = useState<"orders" | "visitors">("orders"), [visitorId, setVisitorId] = useState<string | null>(null);
+    const [tab, setTab] = useState<"orders" | "visitors">("orders"), [visitorId, setVisitorId] = useState<string | null>(initialVisitorId);
     const orders = useRead<OrdersOverview>("/api/analytics/journeys?view=orders");
     const visitors = useRead<VisitorsOverview>(tab === "visitors" && !visitorId ? `/api/analytics/journeys?view=visitors&days=${days}` : null);
     if (visitorId)

@@ -6,6 +6,14 @@ const event = (id: number, visitor: string, name: string, at: string, text?: str
     page_path: path, metadata: { text, source },
 });
 describe("dashboard analytics read model", () => {
+    it("keeps repeated page views distinct from browsers in the 05:00 IST bucket",()=>{
+        const events=Array.from({length:25},(_,i)=>event(i,`v${i%4}`,"page_view",new Date(Date.parse("2026-10-20T23:30:00Z")+i*2000).toISOString()));
+        const result=summarizeDashboard({events,visitors:[],checkouts:[],orders:[],days:1,now});
+        expect(result.metrics.pageviews).toBe(25);expect(result.metrics.visitors).toBe(4);
+        const index=result.charts.pageviews.labels.findIndex(label=>label.includes("05:00"));
+        expect(result.charts.pageviews.values[index]).toBe(25);
+    });
+
     it("uses a rolling 48-hour window and explicit IST calendar days", () => {
         expect(dashboardWindow(2, now).since).toBe("2026-10-19T06:00:00.000Z");
         expect(dashboardWindow(1, now).since).toBe("2026-10-20T18:30:00.000Z");

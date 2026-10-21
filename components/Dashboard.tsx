@@ -28,6 +28,8 @@ import {
 } from "lucide-react";
 
 import ProductionHealth from "./ProductionHealth";
+import VisitorDetails from "./VisitorDetails";
+import {buttonInterest as countButtonInterest} from "@/lib/analytics/engagement";
 import OrderJourneys, {OrderHighlights} from "./OrderJourneys";
 import LemlistAnalytics from "./LemlistAnalytics";
 import BrevoAnalytics from "./BrevoAnalytics";
@@ -97,19 +99,6 @@ interface EventRow {
     last_page?: string | null;
     depth?: number | string | null;
   } | null;
-}
-
-interface VisitorRow {
-  visitor_id: string;
-  is_online?: boolean;
-  current_session_id: string | null;
-  first_seen_at?: string | null;
-  last_seen_at: string | null;
-  device_type?: string | null;
-  browser?: string | null;
-  os?: string | null;
-  city?: string | null;
-  country?: string | null;
 }
 
 interface BarItem { label: string; count: number; }
@@ -421,6 +410,19 @@ function Sparkline({ data, color }: { data: number[]; color: string }) {
     </svg>
   );
 }
+const METRIC_EXPLANATIONS:Record<string,string>={
+ "Brevo Leads":"GET /api/brevo/status?page=1&per_page=1 → data.totalContacts. Current Brevo contact total returned by the integration; independent of the selected analytics date range. Not a paid-order count.",
+ "Unique Visitors":"GET /api/analytics/dashboard → metrics.visitors. Distinct non-empty visitor_id values with recorded activity in the selected IST range. A browser identifier, not a verified person; multiple devices can count separately.",
+ "New Visitors":"GET /api/analytics/dashboard → metrics.newVisitors. Active browser IDs whose analytics_visitors.first_seen_at falls within the selected range. Missing first-seen history is unclassified.",
+ "Returning Unique Visitors":"GET /api/analytics/dashboard → metrics.returningUniqueVisitors. Active browser IDs first seen before the selected range; each browser counted once. Unknown history excluded.",
+ "Online Now":"analytics_visitors: count rows with last_seen_at in the last 3 minutes. Independent of the selected range. Recent activity is not proof a tab remains open.",
+ "Recorded sessions":"GET /api/analytics/dashboard → metrics.sessions. Distinct recorded session_id values on events in range. A visit can contain many page views and clicks.",
+ "Page Views":"GET /api/analytics/dashboard → metrics.pageviews. Deduplicated page_view events in range. Reloads and revisits count again; this is not unique people. Paired different tracker records within 1 second for the same browser/session/path/label are merged.",
+ "Total Events":"GET /api/analytics/dashboard → metrics.events. All deduplicated recorded events in range, including clicks, scroll milestones, heartbeats and session lifecycle events. Not unique users or sales.",
+ "Order intent actions":"GET /api/analytics/dashboard → metrics.atc. add_to_cart plus supported button_click/buy_now_click labels: Pre-order, Buy, Buy now, Add to order/cart, Your order. Paired legacy/generic records are merged. Buy once, Subscribe, Remove and Pay securely are excluded. No checkout API call is required; intent is not payment.",
+ "Prepared checkouts":"GET /api/analytics/dashboard → metrics.checkouts. Distinct checkout_sessions.id created in range, written by POST /api/checkout/prepare. Counts server preparation, including unpaid/abandoned sessions; not successful payments.",
+ "Confirmed sales":"GET /api/analytics/dashboard → metrics.purchases. Distinct orders.id with status CONFIRMED and paid_at in range, including initial and renewal orders. Browser purchase events are not used. The all-time order highlight uses a separate range.",
+};
 function MetricCard({
   label,
   value,
@@ -462,7 +464,7 @@ padding: "18px 20px",position: "relative",overflow: "hidden",animation: "fadeIn 
   letterSpacing: "0.05em",
   color: "#d9b48a",
   marginBottom: 12,
-  paddingRight: icon ? 46 : 0,
+  paddingRight: METRIC_EXPLANATIONS[label] ? 76 : icon ? 46 : 0,
 }}
       >
         <span
@@ -515,6 +517,7 @@ padding: "18px 20px",position: "relative",overflow: "hidden",animation: "fadeIn 
         background: color === "var(--green)" ? "rgba(143,174,107,0.14)" : color === "var(--blue)" ? "rgba(138,166,163,0.14)" : "rgba(201,138,75,0.14)",
         color: color,
       }}>● {badge} </div>
+      {METRIC_EXPLANATIONS[label]&&<details className="metric-explanation"><summary aria-label={`How ${label} is counted`} title={`How ${label} is counted`}>ⓘ</summary><p>{METRIC_EXPLANATIONS[label]}</p></details>}
     </div>
   );
 }
@@ -1549,8 +1552,6 @@ type GraphGroupBy = "auto" | "hour" | "day" | "week" | "month";
   const [visStatus, setVisStatus]   = useState("all");
   const [visDevice, setVisDevice]   = useState("all");
   const [visSearch, setVisSearch]   = useState("");
-  const [rtVisitorType, setRtVisitorType] = useState("all");
-  const [rtVisitorSearch, setRtVisitorSearch] = useState("");
 
   // Data states
   const [metrics, setMetrics] = useState<Metrics>({
@@ -1599,7 +1600,8 @@ const [brevoLeads, setBrevoLeads] = useState<number | null>(null);
 // Page-specific states
 
   // Page-specific states
-  const [visitors, setVisitors]     = useState<VisitorRow[]>([]);
+  const [journeyVisitor,setJourneyVisitor]=useState<string|null>(null);
+  const [interest,setInterest]=useState<ReturnType<typeof countButtonInterest>>([]);
   const [eventsTable, setEventsTable] = useState<EventRow[]>([]);
   const [funnelData, setFunnelData] = useState<{ name: string; count: number; color: string }[]>([]);
   const [pagesData, setPagesData]   = useState<{ path: string; views: number; visitors: number; events: number }[]>([]);
@@ -1655,13 +1657,13 @@ const loadBrevoLeads = useCallback(async () => {
     try {
       const response=await fetch(`/api/analytics/dashboard?days=${range}&group=${resolvedGraphGroupBy}`,{cache:"no-store"});
       if(!response.ok)throw new Error("Analytics could not be loaded. Retry or choose a shorter range.");
-      const data:DashboardSummary=await response.json();
+      const data:DashboardSummary&{buttonInterest:ReturnType<typeof countButtonInterest>}=await response.json();
       if(request!==analyticsRequest.current)return;
       setAnalyticsError(null);
       setAnalyticsRange(range);
       setMetrics(prev=>({...data.metrics,online:prev.online}));
       setSidebarStats(prev=>({...prev,visitors:data.metrics.visitors,sessions:data.metrics.sessions,events:data.metrics.events}));
-      setProductViews(data.productViews);
+      setProductViews(data.productViews);setInterest(data.buttonInterest||[]);
       setPvData(data.charts.pageviews);setProductViewGraphData(data.charts.productViews);
       setAddToCartGraphData(data.charts.atc);setCheckoutGraphData(data.charts.checkouts);setPurchaseGraphData(data.charts.purchases);
       setButtonClickGraphData(data.charts.buttonClicks);setTotalEventsGraphData(data.charts.events);setBuyNowGraphData(data.charts.buyNow);
@@ -1776,27 +1778,6 @@ const loadEventFeed = useCallback(async () => {
       .limit(30);
     setLiveUserEvents(data || []);
   }, [liveVisitors]);
-  // ── VISITORS ──
-  // FIX: was missing `first_seen_at` in the select, so the "First Seen"
-  // column in the table always rendered "—".
-  const loadVisitors = useCallback(async () => {
-    const since = rangeStart(range);
-    const { data } = await supabase
-  .from("analytics_visitors")
-  .select("visitor_id, current_session_id, first_seen_at, last_seen_at, city, country")
-  .gte("last_seen_at", since)
-  .order("last_seen_at", { ascending: false })
-  .limit(100);
-    if (!data) return;
-    const sids = Array.from(new Set(data.map(v => v.current_session_id).filter(Boolean))) as string[];
-    let sessionMap: Record<string, { device_type?: string; browser?: string; os?: string }> = {};
-    if (sids.length) {
-      const { data: sd } = await supabase.from("analytics_sessions").select("session_id, device_type, browser, os").in("session_id", sids);
-      (sd || []).forEach(s => { sessionMap[s.session_id] = s; });
-    }
-    setVisitors(data.map(v => ({ ...v, ...(sessionMap[v.current_session_id || ""] || {}) })));
-  }, [range]);
-
   // ── EVENTS TABLE ──
  const loadEventsTable = useCallback(async () => {
    const since = rangeStart(range);
@@ -1896,10 +1877,9 @@ const loadEventFeed = useCallback(async () => {
   }, [selectedLiveVisitor, liveVisitors, loadLiveUserActivity]);
   // ── PAGE SWITCH ──
   useEffect(() => {
-    if (activePage === "visitors")    loadVisitors();
     if (activePage === "events")      loadEventsTable();
-    if (activePage === "realtime") {loadEventFeed();loadVisitors();}
-  }, [activePage, loadVisitors, loadEventsTable, loadEventFeed]);
+    if (activePage === "realtime") {loadEventFeed();}
+  }, [activePage, loadEventsTable, loadEventFeed]);
 
   // ── Chart config ──
   const chartData = {
@@ -1911,7 +1891,7 @@ const loadEventFeed = useCallback(async () => {
     borderWidth: 2,
     pointRadius: 3,
     pointBackgroundColor: "#8fae6b",
-    tension: 0.4,
+    tension: 0,
     fill: true,
   }],
 };
@@ -2276,7 +2256,7 @@ const buyNowChartData = {
   ["metaAds", "Meta Ads", Infinity],
   ["graphs", "Special Graphs", BarChart3],
 ] as [Page, string, any][]).map(([page, label, Icon]) => (
-    <button key={page} aria-current={activePage===page?"page":undefined} onClick={() => {setActivePage(page);setMobileMenuOpen(false);}} style={{ width:"100%",border:0,textAlign:"left",minHeight:44,
+    <button key={page} aria-current={activePage===page?"page":undefined} onClick={() => {if(page==="commerce")setJourneyVisitor(null);setActivePage(page);setMobileMenuOpen(false);}} style={{ width:"100%",border:0,textAlign:"left",minHeight:44,
               display: "flex", alignItems: "center", gap: 10, padding: "8px 18px",
               cursor: "pointer", color: activePage === page ? "var(--text)" : "var(--muted)",
               background: activePage === page ? "rgba(124,106,247,0.12)" : "transparent",
@@ -3673,9 +3653,9 @@ const buyNowChartData = {
 )}
           {/* ══ OVERVIEW ══ */}
           {activePage === "health" && <ProductionHealth/>}
-          {activePage === "commerce" && <OrderJourneys days={range}/>}
+          {activePage === "commerce" && <OrderJourneys key={journeyVisitor||"orders"} days={range} initialVisitorId={journeyVisitor}/>}
           {activePage === "overview" && <>
-            <OrderHighlights onOpen={()=>setActivePage("commerce")}/>
+            <OrderHighlights onOpen={()=>{setJourneyVisitor(null);setActivePage("commerce");}}/>
             <details style={{fontSize:12,lineHeight:1.6,color:"var(--muted)"}}><summary style={{cursor:"pointer",minHeight:32}}>How these metrics are counted</summary><p>All activity uses the selected IST range; 48H is rolling. New/returning visitors use first-seen history (unknown history is unclassified). Order intent counts supported buttons, not purchases. Prepared checkouts count server sessions created in range. Confirmed sales count paid orders by paid time, including renewals. Browser tracking can be incomplete.</p></details>
    
        <div className="dashboard-metrics-grid"
@@ -3781,6 +3761,11 @@ const buyNowChartData = {
   icon={<Mail size={18} color="#8fae6b" />}
 />
             </div>
+            <Panel title="Product & checkout button interest" badge="Selected range">
+              <p className="visitor-note">Unique tracked browsers who clicked each control, with total deduplicated clicks below. A browser can appear in several groups. Missing tracking is not evidence of no interest; default selections are not clicks.</p>
+              <div className="button-interest-grid">{interest.map(item=><div key={item.key}><span>{item.label}</span><strong>{summaryAvailable?item.users:"—"} <small>users</small></strong><span>{summaryAvailable?item.clicks:"—"} click(s)</span></div>)}</div>
+              {!summaryAvailable&&<p role="status" className="visitor-note">Button counts appear after the selected-range snapshot loads.</p>}
+            </Panel>
              <div className="dashboard-overview-grid" style={{ width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", display: "grid", gridTemplateColumns: "minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr)", gap: 14 }}>
               <Panel title="⚡ Right Now" badge="● Live">
                 <div style={{ fontSize: 56, fontWeight: 800, letterSpacing: "-0.04em", color: "var(--green)", lineHeight: 1, textAlign: "center", padding: "10px 0", fontVariantNumeric: "tabular-nums" }}>{nowCount}</div>
@@ -3820,8 +3805,9 @@ const buyNowChartData = {
                     <span style={{ fontSize: 14, fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--muted)" }}>{pvHeading}</span>
                     <span style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Live</span>
                   </div>
+                  <p className="visitor-note">{summaryAvailable?`${pvData.values.reduce((a,b)=>a+b,0)} page views · ${summaryMetric("visitors")} active browsers in range`:"Loading selected-range views…"}. IST buckets; reloads/revisits count again. Current bucket is incomplete.</p>
                   <div style={{ position: "relative", height: 190, width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", overflow: "hidden" }}>
-                    <Line data={chartData} options={chartOptions as Parameters<typeof Line>[0]["options"]} />
+                    <Bar data={chartData} options={{...chartOptions,scales:{...chartOptions.scales,y:{...chartOptions.scales.y,grace:"10%"}},plugins:{...chartOptions.plugins,tooltip:{callbacks:{label:(ctx)=>`${ctx.parsed.y} page-view events`}}}} as Parameters<typeof Bar>[0]["options"]} />
                   </div>
                 </div>
 
@@ -3955,86 +3941,7 @@ const buyNowChartData = {
     <MetricCard label="Returning Visitors" value={summaryMetric("returningUniqueVisitors")} color="var(--blue)" badge="Selected range" />
   </div>
 
-  <Panel title="Visitor Details" badge="India Timezone">
-    <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-      <select
-        value={rtVisitorType}
-        onChange={(e) => setRtVisitorType(e.target.value)}
-        style={{ padding: "6px 10px", borderRadius: 6, background: "var(--border2)", color: "var(--fg)", border: "1px solid var(--border)", fontSize: 12 }}
-      >
-        <option value="all">All visitors</option>
-        <option value="new">New visitors</option>
-        <option value="returning">Returning visitors</option>
-        <option value="unique">Unique visitors</option>
-      </select>
-
-      <input
-        value={rtVisitorSearch}
-        onChange={(e) => setRtVisitorSearch(e.target.value)}
-        placeholder="Search city / device / OS / visitor id..."
-        style={{ padding: "6px 10px", borderRadius: 6, background: "var(--border2)", color: "var(--fg)", border: "1px solid var(--border)", fontSize: 12, flex: 1, minWidth: 220 }}
-      />
-    </div>
-
-    <div style={{ overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-        <thead>
-          <tr>
-            {["Visitor ID", "Type", "City", "Country", "Device", "Browser", "OS", "First Seen IST", "Last Seen IST"].map((h) => (
-              <th key={h} style={{ textAlign: "left", padding: "8px 12px", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--muted)", borderBottom: "1px solid var(--border)", fontWeight: 600 }}>
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-
-        <tbody>
-          {visitors
-            .filter((v) => {
-              const sinceTime = new Date(rangeStart(range)).getTime();
-              const firstSeenTime = v.first_seen_at ? new Date(v.first_seen_at).getTime() : 0;
-              const visitorType = firstSeenTime >= sinceTime ? "new" : "returning";
-
-              const matchesType =
-                rtVisitorType === "all" ||
-                rtVisitorType === "unique" ||
-                rtVisitorType === visitorType;
-
-              const q = rtVisitorSearch.toLowerCase();
-              const matchesSearch =
-                !q ||
-                v.visitor_id.toLowerCase().includes(q) ||
-                v.city?.toLowerCase().includes(q) ||
-                v.country?.toLowerCase().includes(q) ||
-                v.device_type?.toLowerCase().includes(q) ||
-                v.browser?.toLowerCase().includes(q) ||
-                v.os?.toLowerCase().includes(q);
-
-              return matchesType && matchesSearch;
-            })
-            .map((v) => {
-              const sinceTime = new Date(rangeStart(range)).getTime();
-              const firstSeenTime = v.first_seen_at ? new Date(v.first_seen_at).getTime() : 0;
-              const visitorType = firstSeenTime >= sinceTime ? "New" : "Returning";
-
-              return (
-                <tr key={v.visitor_id} style={{ borderBottom: "1px solid var(--border)" }}>
-                  <td style={{ padding: "9px 12px", fontFamily: "monospace", fontSize: 11 }}>{shortId(v.visitor_id)}</td>
-                  <td style={{ padding: "9px 12px" }}>{visitorType}</td>
-                  <td style={{ padding: "9px 12px" }}>{v.city || "—"}</td>
-                  <td style={{ padding: "9px 12px" }}><CountryCell country={v.country} /></td>
-                  <td style={{ padding: "9px 12px" }}><DeviceCell value={v.device_type} /></td>
-                  <td style={{ padding: "9px 12px" }}><BrowserCell value={v.browser} /></td>
-                  <td style={{ padding: "9px 12px" }}><OSCell value={v.os} /></td>
-                  <td style={{ padding: "9px 12px", color: "var(--muted)" }}>{fmt(v.first_seen_at ?? null)}</td>
-                  <td style={{ padding: "9px 12px", color: "var(--muted)" }}>{fmt(v.last_seen_at)}</td>
-                </tr>
-              );
-            })}
-        </tbody>
-      </table>
-    </div>
-  </Panel>
+  <VisitorDetails days={range} onJourney={id=>{setJourneyVisitor(id);setActivePage("commerce");}}/>
 
   <Panel title="Live Activity Stream" badge="● Live">
     <div style={{ maxHeight: 500, overflowY: "auto" }}>
@@ -4078,86 +3985,7 @@ const buyNowChartData = {
 
           {/* ══ VISITORS ══ */}
           {activePage === "visitors" && (
-  <Panel title="Visitor Details" badge="India Timezone">
-    <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-      <select
-        value={rtVisitorType}
-        onChange={(e) => setRtVisitorType(e.target.value)}
-        style={{ padding: "6px 10px", borderRadius: 6, background: "var(--border2)", color: "var(--fg)", border: "1px solid var(--border)", fontSize: 12 }}
-      >
-        <option value="all">All visitors</option>
-        <option value="new">New visitors</option>
-        <option value="returning">Returning visitors</option>
-        <option value="unique">Unique visitors</option>
-      </select>
-
-      <input
-        value={rtVisitorSearch}
-        onChange={(e) => setRtVisitorSearch(e.target.value)}
-        placeholder="Search city / device / OS / visitor id..."
-        style={{ padding: "6px 10px", borderRadius: 6, background: "var(--border2)", color: "var(--fg)", border: "1px solid var(--border)", fontSize: 12, flex: 1, minWidth: 220 }}
-      />
-    </div>
-
-    <div style={{ overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-        <thead>
-          <tr>
-            {["Visitor ID", "Type", "City", "Country", "Device", "Browser", "OS", "First Seen IST", "Last Seen IST"].map((h) => (
-              <th key={h} style={{ textAlign: "left", padding: "8px 12px", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--muted)", borderBottom: "1px solid var(--border)", fontWeight: 600 }}>
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-
-        <tbody>
-          {visitors
-            .filter((v) => {
-              const sinceTime = new Date(rangeStart(range)).getTime();
-              const firstSeenTime = v.first_seen_at ? new Date(v.first_seen_at).getTime() : 0;
-              const visitorType = firstSeenTime >= sinceTime ? "new" : "returning";
-
-              const matchesType =
-                rtVisitorType === "all" ||
-                rtVisitorType === "unique" ||
-                rtVisitorType === visitorType;
-
-              const q = rtVisitorSearch.toLowerCase();
-              const matchesSearch =
-                !q ||
-                v.visitor_id.toLowerCase().includes(q) ||
-                v.city?.toLowerCase().includes(q) ||
-                v.country?.toLowerCase().includes(q) ||
-                v.device_type?.toLowerCase().includes(q) ||
-                v.browser?.toLowerCase().includes(q) ||
-                v.os?.toLowerCase().includes(q);
-
-              return matchesType && matchesSearch;
-            })
-            .map((v) => {
-              const sinceTime = new Date(rangeStart(range)).getTime();
-              const firstSeenTime = v.first_seen_at ? new Date(v.first_seen_at).getTime() : 0;
-              const visitorType = firstSeenTime >= sinceTime ? "New" : "Returning";
-
-              return (
-                <tr key={v.visitor_id} style={{ borderBottom: "1px solid var(--border)" }}>
-                  <td style={{ padding: "9px 12px", fontFamily: "monospace", fontSize: 11 }}>{shortId(v.visitor_id)}</td>
-                  <td style={{ padding: "9px 12px" }}>{visitorType}</td>
-                  <td style={{ padding: "9px 12px" }}>{v.city || "—"}</td>
-                  <td style={{ padding: "9px 12px" }}><CountryCell country={v.country} /></td>             
-                  <td style={{ padding: "9px 12px" }}><DeviceCell value={v.device_type} /></td>
-                  <td style={{ padding: "9px 12px" }}><BrowserCell value={v.browser} /></td>
-                  <td style={{ padding: "9px 12px" }}><OSCell value={v.os} /></td>
-                  <td style={{ padding: "9px 12px", color: "var(--muted)" }}>{fmt(v.first_seen_at ?? null)}</td>
-                  <td style={{ padding: "9px 12px", color: "var(--muted)" }}>{fmt(v.last_seen_at)}</td>
-                </tr>
-              );
-            })}
-        </tbody>
-      </table>
-    </div>
-  </Panel>
+<VisitorDetails days={range} onJourney={id=>{setJourneyVisitor(id);setActivePage("commerce");}}/>
 )}
 
           {/* ══ EVENTS ══ */}
