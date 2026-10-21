@@ -1,3 +1,4 @@
+import {withObservation} from "@/lib/observability/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { tokenHash } from "@/lib/commerce/crypto";
 import { getCommerceEnv } from "@/lib/commerce/env";
@@ -20,14 +21,14 @@ function maskedPhone(phone: string | null): string | null {
   return digits.length < 4 ? "••••" : `••••••${digits.slice(-4)}`;
 }
 
-export async function OPTIONS(request: Request) {
+async function observedOPTIONS(request: Request) {
   return new Response(null, {
     status: 204,
     headers: commerceCorsHeaders(request.headers.get("origin"), "GET, OPTIONS"),
   });
 }
 
-export async function GET(request: Request) {
+async function observedGET(request: Request) {
   let origin: string | null = null;
   try {
     origin = assertCommerceOrigin(request);
@@ -113,3 +114,6 @@ export async function GET(request: Request) {
     return errorResponse(error, origin);
   }
 }
+
+export const OPTIONS = withObservation("/api/experience", observedOPTIONS);
+export const GET = withObservation("/api/experience", observedGET);

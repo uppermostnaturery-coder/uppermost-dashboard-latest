@@ -1,3 +1,4 @@
+import {withObservation} from "@/lib/observability/server";
 import { sha256, verifyHmacHex } from "@/lib/commerce/crypto";
 import { getRazorpayEnv } from "@/lib/commerce/env";
 import { commerceJson, errorResponse } from "@/lib/commerce/http";
@@ -36,7 +37,7 @@ function isPaymentEvent(value: string): boolean {
   return (RAZORPAY_PAYMENT_EVENTS as readonly string[]).includes(value);
 }
 
-export async function POST(request: Request) {
+async function observedPOST(request: Request) {
   let claimedEventId: string | null = null;
   try {
     const raw = await request.text();
@@ -96,3 +97,5 @@ export async function POST(request: Request) {
     return errorResponse(error, null);
   }
 }
+
+export const POST = withObservation("/api/webhooks/razorpay", observedPOST);

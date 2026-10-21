@@ -1,7 +1,7 @@
 # Uppermost® Commerce V1 — Architecture & Implementation Blueprint
 
 **Document status:** FROZEN PRODUCTION ARCHITECTURE
-**Version:** 1.6 (masked order and visitor analytics)
+**Version:** 1.7 (prepared production observability; commerce behavior unchanged)
 **Date:** 21 October 2026
 **Audience:** CXO / Product / Engineering / Framer / Operations / Growth  
 **Canonical repository path:** `docs/UPPERMOST_COMMERCE_ARCHITECTURE.md`
@@ -666,6 +666,17 @@ The current BuyBox already has the visual 15/30/60 interval control, but purchas
 - New offers automatically granted to existing subscribers: **NO**.
 - fastrr in V1: **NO**.
 - Shopify Checkout in new flow: **NO**.
+
+
+## Production technical observability — prepared on feature branches, 21 October 2026
+
+This operations layer is prepared but not released. It does not change commerce pricing, quote/idempotency, payment verification, subscription activation, fulfilment, or customer-facing API bodies. Next.js route observers measure one handler completion per incoming request, with server-generated private correlation IDs; alias handlers share request scope. Persisted observation data contains static route/method/status/duration/category/release only. A separate service-only RLS table and aggregate RPC supply the public Production Health view. Persistence and safe Sentry reporting use bounded post-response lifecycle work and cannot replace a commerce response.
+
+Sentry projects uppermost-storefront and uppermost-backend-dashboard keep sanitized error/structured-log diagnostics private. The public dashboard receives only fixed-project production error counts from a server-only read credential. Sentry v11 dataCollection explicitly disables sensitive automatic collection; default console/replay/tracing integrations are absent. Storefront integration is a once-only production-host head script in commerce-fe/observability, asynchronously loaded independently of checkout. Full contacts, addresses, tokens, raw error bodies and frame paths are excluded. No authenticated private log explorer is added to the public dashboard.
+
+Vercel log forwarding is optional and currently unavailable on this Hobby team. A prepared signed drain endpoint accepts only the live project's production API metadata, ignores telemetry endpoints to avoid recursive ingestion, deduplicates provider IDs and preserves pre-response crashes without inventing an HTTP status. Platform log-entry counts never enter the app request denominator. Without a supported drain, framework rejections/unknown routes and pre-handler crashes are coverage gaps. No paid upgrade or external notifications are enabled.
+
+Retention targets 30 days with a dedicated daily cron using existing CRON_SECRET; the new RPC and table remain inaccessible to anon/authenticated. See docs/README.md's Production Health implementation section for exact environment variables, tests, privacy/coverage tradeoffs, account setup and release procedure. Production migration, Vercel deployment, Framer main insertion and publication remain pending their required approvals; staging is excluded.
 
 ## Reference Sources
 

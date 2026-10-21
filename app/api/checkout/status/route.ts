@@ -1,3 +1,4 @@
+import {withObservation} from "@/lib/observability/server";
 import {
   assertCommerceOrigin,
   CommerceError,
@@ -11,11 +12,11 @@ import { getCheckoutStatus } from "@/lib/commerce/status";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function OPTIONS(request: Request) {
+async function observedOPTIONS(request: Request) {
   return new Response(null, { status: 204, headers: commerceCorsHeaders(request.headers.get("origin"), "GET, OPTIONS") });
 }
 
-export async function GET(request: Request) {
+async function observedGET(request: Request) {
   let origin: string | null = null;
   try {
     origin = assertCommerceOrigin(request);
@@ -29,3 +30,6 @@ export async function GET(request: Request) {
     return errorResponse(error, origin);
   }
 }
+
+export const OPTIONS = withObservation("/api/checkout/status", observedOPTIONS);
+export const GET = withObservation("/api/checkout/status", observedGET);

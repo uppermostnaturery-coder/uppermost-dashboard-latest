@@ -1,3 +1,4 @@
+import {withObservation} from "@/lib/observability/server";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -147,7 +148,7 @@ function total(values: CampaignStats[], field: keyof CampaignStats): number {
   }, 0);
 }
 
-export async function GET(request: Request) {
+async function observedGET(request: Request) {
   try {
     const rangeDays = requestedRangeDays(request);
     const campaignIds = configuredCampaignIds();
@@ -258,3 +259,4 @@ export async function GET(request: Request) {
     );
   }
 }
+export const GET = withObservation("/api/lemlist/analytics", observedGET);

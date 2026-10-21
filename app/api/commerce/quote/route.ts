@@ -1,3 +1,4 @@
+import {withObservation} from "@/lib/observability/server";
 import { publicQuoteShape } from "@/lib/commerce/apiShape";
 import {
   assertCommerceOrigin,
@@ -13,12 +14,12 @@ import { quoteRequestSchema } from "@/lib/commerce/schemas";
 
 export const runtime = "nodejs";
 
-export async function OPTIONS(request: Request) {
+async function observedOPTIONS(request: Request) {
   const origin = request.headers.get("origin");
   return new Response(null, { status: 204, headers: commerceCorsHeaders(origin) });
 }
 
-export async function POST(request: Request) {
+async function observedPOST(request: Request) {
   let origin: string | null = null;
   try {
     origin = assertCommerceOrigin(request);
@@ -46,3 +47,6 @@ export async function POST(request: Request) {
   }
 }
 
+
+export const OPTIONS = withObservation("/api/commerce/quote", observedOPTIONS);
+export const POST = withObservation("/api/commerce/quote", observedPOST);

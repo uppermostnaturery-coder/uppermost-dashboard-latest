@@ -1,3 +1,4 @@
+import {withObservation} from "@/lib/observability/server";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 
@@ -314,7 +315,7 @@ function getEventsByEmail(payload: unknown) {
   return eventsByEmail;
 }
 
-export async function GET(request: Request) {
+async function observedGET(request: Request) {
   try {
     const { page, perPage, searchQuery, days } = parsePaginationParams(new URL(request.url));
     const rangeStartDate = getRangeStart(days);
@@ -453,3 +454,4 @@ const normalizedContacts = normalizeRecentContacts(
     );
   }
 }
+export const GET = withObservation("/api/brevo/status", observedGET);

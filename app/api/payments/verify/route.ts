@@ -1,3 +1,4 @@
+import {withObservation} from "@/lib/observability/server";
 import { requestHash, verifyHmacHex } from "@/lib/commerce/crypto";
 import { getRazorpayEnv } from "@/lib/commerce/env";
 import {
@@ -19,11 +20,11 @@ import { getCheckoutStatus } from "@/lib/commerce/status";
 
 export const runtime = "nodejs";
 
-export async function OPTIONS(request: Request) {
+async function observedOPTIONS(request: Request) {
   return new Response(null, { status: 204, headers: commerceCorsHeaders(request.headers.get("origin")) });
 }
 
-export async function POST(request: Request) {
+async function observedPOST(request: Request) {
   let origin: string | null = null;
   let recordId: string | null = null;
   try {
@@ -80,3 +81,6 @@ export async function POST(request: Request) {
     return errorResponse(error, origin);
   }
 }
+
+export const OPTIONS = withObservation("/api/payments/verify", observedOPTIONS);
+export const POST = withObservation("/api/payments/verify", observedPOST);

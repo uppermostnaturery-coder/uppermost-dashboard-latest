@@ -1,0 +1,3 @@
+import * as Sentry from '@sentry/nextjs';
+import { sanitizeSentryEvent, sanitizeLog, SENTRY_DATA_COLLECTION } from './lib/observability/privacy';
+Sentry.init({ dsn: process.env.NEXT_PUBLIC_SENTRY_DSN, enabled: process.env.NEXT_PUBLIC_OBSERVABILITY_ENV === 'production' && !!process.env.NEXT_PUBLIC_SENTRY_DSN, environment: 'production', dataCollection: SENTRY_DATA_COLLECTION, tracesSampleRate: 0, defaultIntegrations: false, integrations: [Sentry.globalHandlersIntegration(), Sentry.browserApiErrorsIntegration(), Sentry.dedupeIntegration()], beforeSend: sanitizeSentryEvent, beforeBreadcrumb: () => null, beforeSendLog: (log) => { const safe = sanitizeLog(log); return safe ? { ...log, message: safe.message, attributes: safe.attributes } : null; } });

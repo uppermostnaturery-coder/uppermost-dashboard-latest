@@ -1,3 +1,4 @@
+import {withObservation} from "@/lib/observability/server";
 import { prepareCheckout } from "@/lib/commerce/checkout";
 import { requestHash } from "@/lib/commerce/crypto";
 import {
@@ -18,11 +19,11 @@ import { checkoutPrepareSchema } from "@/lib/commerce/schemas";
 
 export const runtime = "nodejs";
 
-export async function OPTIONS(request: Request) {
+async function observedOPTIONS(request: Request) {
   return new Response(null, { status: 204, headers: commerceCorsHeaders(request.headers.get("origin")) });
 }
 
-export async function POST(request: Request) {
+async function observedPOST(request: Request) {
   let origin: string | null = null;
   let recordId: string | null = null;
   try {
@@ -74,3 +75,6 @@ export async function POST(request: Request) {
     return errorResponse(error, origin);
   }
 }
+
+export const OPTIONS = withObservation("/api/checkout/prepare", observedOPTIONS);
+export const POST = withObservation("/api/checkout/prepare", observedPOST);

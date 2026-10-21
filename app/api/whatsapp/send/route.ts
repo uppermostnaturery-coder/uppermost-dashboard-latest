@@ -1,3 +1,4 @@
+import {withObservation} from "@/lib/observability/server";
 import { NextResponse } from "next/server";
 import { sendWhatsAppTemplate, WhatsAppApiError } from "../../../../lib/whatsapp/client";
 import { getWhatsAppEnv } from "../../../../lib/whatsapp/env";
@@ -25,7 +26,7 @@ function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Unknown error";
 }
 
-export async function GET() {
+async function observedGET() {
   return NextResponse.json(
     {
       success: false,
@@ -35,7 +36,7 @@ export async function GET() {
   );
 }
 
-export async function POST(req: Request) {
+async function observedPOST(req: Request) {
   let phone = "";
   let templateName = "";
   let templateLanguage = "";
@@ -141,3 +142,5 @@ export async function POST(req: Request) {
     );
   }
 }
+export const GET = withObservation("/api/whatsapp/send", observedGET);
+export const POST = withObservation("/api/whatsapp/send", observedPOST);

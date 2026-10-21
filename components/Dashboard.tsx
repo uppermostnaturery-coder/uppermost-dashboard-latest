@@ -27,6 +27,7 @@ import {
   X,
 } from "lucide-react";
 
+import ProductionHealth from "./ProductionHealth";
 import OrderJourneys, {OrderHighlights} from "./OrderJourneys";
 import LemlistAnalytics from "./LemlistAnalytics";
 import BrevoAnalytics from "./BrevoAnalytics";
@@ -63,7 +64,7 @@ import { FiMoreHorizontal, FiGlobe } from "react-icons/fi";
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Filler, Tooltip, Legend);
 
 // ─── Types ───────────────────────────────────
-type Page = "commerce" | "overview" | "realtime" | "funnel" | "pages" | "visitors" | "events" | "sources" | "scrolldepth" | "lemlist" | "metaAds" | "brevo" |"graphs";
+type Page = "health" | "commerce" | "overview" | "realtime" | "funnel" | "pages" | "visitors" | "events" | "sources" | "scrolldepth" | "lemlist" | "metaAds" | "brevo" |"graphs";
 
 interface Metrics {
   visitors: number;
@@ -2264,6 +2265,7 @@ const buyNowChartData = {
          
   ["overview", "Overview", Home],
   ["commerce", "Orders & Journeys", Bookmark],
+  ["health", "Production Health", Activity],
   ["realtime", "Real-Time", Activity],
   ["visitors", "Visitors", Users],
   ["funnel", "Funnel", Funnel],
@@ -2339,10 +2341,10 @@ const buyNowChartData = {
         <div className="dashboard-topbar" style={{ padding: "14px 24px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--bg2)" }}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <button className="dashboard-menu" aria-label={mobileMenuOpen?"Close navigation":"Open navigation"} aria-expanded={mobileMenuOpen} aria-controls="dashboard-navigation" onClick={()=>setMobileMenuOpen(open=>!open)}>{mobileMenuOpen?<X size={22}/>:<Menu size={22}/>}</button>
-            <div><div style={{ fontSize: 17, fontWeight: 600, letterSpacing: "-0.01em" }}>{activePage === "commerce" ? "Orders & visitor journeys" : "Analytics Overview"}</div>
+            <div><div style={{ fontSize: 17, fontWeight: 600, letterSpacing: "-0.01em" }}>{activePage === "health" ? "Production Health" : activePage === "commerce" ? "Orders & visitor journeys" : "Analytics Overview"}</div>
             <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>uppermost.store — Live tracking dashboard</div></div>
           </div>
-          <div className="dashboard-toolbar" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {activePage !== "health" && <div className="dashboard-toolbar" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div className="dashboard-ranges" style={{ display: "flex", gap: 4 }}>
               {[{ d: 1, l: "Today" }, { d: 2, l: "48H" }, { d: 7, l: "7D" }, { d: 30, l: "30D" }, { d: 90, l: "90D" }].map(({ d, l }) => (
                 <button key={d} onClick={() => setRange(d)} style={{
@@ -2390,12 +2392,12 @@ const buyNowChartData = {
               <div style={{ width: 6, height: 6, borderRadius: "50%", background: "currentColor" }} />
               {summaryStatus}
             </div>
-          </div>
+          </div>}
         </div>
 
         {/* Content */}
         <div className="dashboard-content" style={{ flex: 1, width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 18 }}>
-          {analyticsError && <div role="alert" style={{padding:14,border:"1px solid var(--red)",borderRadius:8,color:"var(--red)"}}>{analyticsError} {summaryAvailable ? "Displayed figures are from the previous snapshot." : "Metrics are unavailable until a successful refresh."}</div>}
+          {activePage !== "health" && analyticsError && <div role="alert" style={{padding:14,border:"1px solid var(--red)",borderRadius:8,color:"var(--red)"}}>{analyticsError} {summaryAvailable ? "Displayed figures are from the previous snapshot." : "Metrics are unavailable until a successful refresh."}</div>}
 {/* — LEMLIST — */}
 {activePage === "lemlist" && (
   <>
@@ -3670,6 +3672,7 @@ const buyNowChartData = {
   </>
 )}
           {/* ══ OVERVIEW ══ */}
+          {activePage === "health" && <ProductionHealth/>}
           {activePage === "commerce" && <OrderJourneys days={range}/>}
           {activePage === "overview" && <>
             <OrderHighlights onOpen={()=>setActivePage("commerce")}/>

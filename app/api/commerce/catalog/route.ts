@@ -1,3 +1,4 @@
+import {withObservation} from "@/lib/observability/server";
 import {
   assertCommerceOrigin,
   commerceCorsHeaders,
@@ -12,14 +13,14 @@ export const runtime = "nodejs";
 const METHODS = "GET, OPTIONS";
 const PUBLIC_CACHE = "public, max-age=30, s-maxage=30, stale-while-revalidate=30";
 
-export async function OPTIONS(request: Request) {
+async function observedOPTIONS(request: Request) {
   return new Response(null, {
     status: 204,
     headers: commerceCorsHeaders(request.headers.get("origin"), METHODS),
   });
 }
 
-export async function GET(request: Request) {
+async function observedGET(request: Request) {
   let origin: string | null = null;
   try {
     origin = assertCommerceOrigin(request);
@@ -32,3 +33,6 @@ export async function GET(request: Request) {
     return errorResponse(error, origin);
   }
 }
+
+export const OPTIONS = withObservation("/api/commerce/catalog", observedOPTIONS);
+export const GET = withObservation("/api/commerce/catalog", observedGET);

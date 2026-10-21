@@ -1,3 +1,4 @@
+import {withObservation} from "@/lib/observability/server";
 import { z } from "zod";
 import { supabase } from "@/lib/supabase";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -5,8 +6,8 @@ import { assertCommerceOrigin, commerceCorsHeaders, commerceJson, enforceRateLim
 export const runtime = "nodejs";
 const trackedId = z.string().regex(/^[A-Za-z0-9_-]{8,200}$/);
 const schema = z.object({ checkout_session_id: z.string().uuid(), guest_session_id: trackedId, visitor_id: trackedId, session_id: trackedId });
-export async function OPTIONS(request: Request) { return new Response(null, { status: 204, headers: commerceCorsHeaders(request.headers.get("origin")) }); }
-export async function POST(request: Request) {
+async function observedOPTIONS(request: Request) { return new Response(null, { status: 204, headers: commerceCorsHeaders(request.headers.get("origin")) }); }
+async function observedPOST(request: Request) {
     let origin: string | null = null;
     try {
         origin = assertCommerceOrigin(request);
@@ -32,3 +33,6 @@ export async function POST(request: Request) {
         return errorResponse(error, origin);
     }
 }
+
+export const OPTIONS = withObservation("/api/analytics/identity", observedOPTIONS);
+export const POST = withObservation("/api/analytics/identity", observedPOST);

@@ -1,3 +1,4 @@
+import {withObservation} from "@/lib/observability/server";
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -20,7 +21,7 @@ async function readAll<T>(client: typeof supabaseAdmin, table: string, columns: 
     }
     throw new Error("Dashboard range exceeds the safe read limit; select a shorter range");
 }
-export async function GET(request: Request) {
+async function observedGET(request: Request) {
     const url = new URL(request.url), days = Number(url.searchParams.get("days") || 7), group = url.searchParams.get("group");
     if (![1, 2, 7, 30, 90].includes(days) || (group && !['hour', 'day', 'week', 'month'].includes(group)))
         return NextResponse.json({ error: "Invalid dashboard range or grouping" }, { status: 400 });
@@ -54,3 +55,5 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: "Analytics could not be loaded. Please retry or select a shorter range." }, { status: 503, headers: { "Cache-Control": "no-store" } });
     }
 }
+
+export const GET = withObservation("/api/analytics/dashboard", observedGET);

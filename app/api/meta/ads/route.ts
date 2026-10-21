@@ -1,3 +1,4 @@
+import {withObservation} from "@/lib/observability/server";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -102,7 +103,7 @@ function createPlatformStats(): PlatformStats {
   };
 }
 
-export async function GET(request: Request) {
+async function observedGET(request: Request) {
   try {
     if (!META_ACCESS_TOKEN) {
       return NextResponse.json(
@@ -294,3 +295,4 @@ export async function GET(request: Request) {
     );
   }
 }
+export const GET = withObservation("/api/meta/ads", observedGET);

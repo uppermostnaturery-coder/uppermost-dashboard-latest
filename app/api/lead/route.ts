@@ -1,3 +1,4 @@
+import {withObservation} from "@/lib/observability/server";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { upsertBrevoContact } from "../../../lib/brevo/contacts";
@@ -1908,7 +1909,7 @@ async function loadFinalLead(leadId: string) {
   return data;
 }
 
-export async function OPTIONS(request: Request) {
+async function observedOPTIONS(request: Request) {
   const origin = request.headers.get("origin");
 
   if (!isAllowedOrigin(origin)) {
@@ -1924,7 +1925,7 @@ export async function OPTIONS(request: Request) {
   });
 }
 
-export async function POST(request: Request) {
+async function observedPOST(request: Request) {
   const origin = request.headers.get("origin");
 
   if (!isAllowedOrigin(origin)) {
@@ -2203,3 +2204,6 @@ export async function POST(request: Request) {
     );
   }
 }
+
+export const OPTIONS = withObservation("/api/lead", observedOPTIONS);
+export const POST = withObservation("/api/lead", observedPOST);

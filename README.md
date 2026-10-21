@@ -51,3 +51,7 @@ public/
 - Sidebar is on the left, main content on the right.
 - Color theme: warm chocolate/coffee (`#1c1410` background, `#c98a4b` terracotta accent, gold `#d4af6a` for the wordmark).
 - Build production bundle: `npm run build && npm start`.
+
+## Prepared Production Health feature
+
+The feat/production-observability branch adds sanitized API health aggregates, per-endpoint status/latency graphs and private Sentry diagnostics. It is not yet deployed. Follow docs/README.md's implementation/release section for live-only migration, secrets, Sentry projects, actual coverage and approval boundaries. Staging is excluded. Personal Vercel tokens stay local. Vercel platform forwarding is unavailable on Hobby; app instrumentation and Sentry are independent of that optional source.

@@ -1,3 +1,4 @@
+import {withObservation} from "@/lib/observability/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requestHash, safeEqual } from "@/lib/commerce/crypto";
 import { getShiprocketEnv } from "@/lib/commerce/env";
@@ -16,7 +17,7 @@ function messageForShipment(status: string): CustomerMessageKey | null {
   return null;
 }
 
-export async function POST(request: Request) {
+async function observedPOST(request: Request) {
   try {
     const supplied = request.headers.get("x-api-key") ??
       request.headers.get("x-shiprocket-webhook-secret") ??
@@ -74,3 +75,5 @@ export async function POST(request: Request) {
     return errorResponse(error, null);
   }
 }
+
+export const POST = withObservation("/api/webhooks/shiprocket", observedPOST);

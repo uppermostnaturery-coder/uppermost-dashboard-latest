@@ -1,3 +1,4 @@
+import {withObservation} from "@/lib/observability/server";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -29,7 +30,7 @@ function getEventTimestamp(payload: any) {
   return new Date().toISOString();
 }
 
-export async function POST(request: Request) {
+async function observedPOST(request: Request) {
       const authHeader = request.headers.get("authorization");
   const expectedToken = process.env.BREVO_WEBHOOK_TOKEN;
 
@@ -135,10 +136,12 @@ export async function POST(request: Request) {
   }
 }
 
-export async function GET() {
+async function observedGET() {
   return NextResponse.json({
     success: true,
     service: "Brevo webhook",
     status: "ready",
   });
 }
+export const POST = withObservation("/api/brevo/webhook", observedPOST);
+export const GET = withObservation("/api/brevo/webhook", observedGET);

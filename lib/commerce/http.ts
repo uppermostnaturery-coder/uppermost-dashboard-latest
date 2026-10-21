@@ -1,3 +1,4 @@
+import {markOutcome,captureObservedError} from "@/lib/observability/server";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 import { configuredCommerceOrigins, normalizeOrigin } from "./env";
@@ -51,6 +52,8 @@ export function commerceJson(
   origin: string | null,
   methods?: string
 ) {
+  if (body.ok === false && status < 400) markOutcome("business_failure");
+  if (["FAILED_RETRYABLE", "SYSTEM_ERROR", "INSUFFICIENT_FUNDS"].includes(String(body.state))) markOutcome("business_failure");
   return NextResponse.json(body, {
     status,
     headers: commerceCorsHeaders(origin, methods),
@@ -124,6 +127,7 @@ export function errorResponse(error: unknown, origin: string | null) {
   }
 
   if (error instanceof ZodError) {
+    markOutcome("validation");
     return commerceJson(
       {
         ok: false,
@@ -141,6 +145,7 @@ export function errorResponse(error: unknown, origin: string | null) {
     );
   }
 
+  captureObservedError(error);
   console.error("Unexpected commerce error:", error);
   return commerceJson(
     {
