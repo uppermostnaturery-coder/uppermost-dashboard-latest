@@ -691,3 +691,6 @@ Retention targets 30 days with a dedicated daily cron using existing CRON_SECRET
 ---
 
 **Change-control rule:** Architecture-level changes must update this document and the API contract before implementation. Product-copy changes can use the message/promotion configuration layers without rewriting this document unless they change behavior.
+
+
+Production activation (21 October 2026): backend runtime `97d3519`, frontend Git `8bcc7a8`, Framer production `4892471ec`. Live private telemetry migration is applied; health reporting receives application observations and Sentry aggregate reporting is connected. Vercel variables were added only for Production, preserving all existing entries. Signed platform drain ingestion remains inactive pending the user’s future Pro upgrade and activation instruction; no staging configuration changed. See docs/README.md for verification and exact added variable names.
