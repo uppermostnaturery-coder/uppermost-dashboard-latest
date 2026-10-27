@@ -14,6 +14,8 @@ beforeAll(async () => {
     alter table analytics_sessions add country text,add city text,add region text,add ip_timezone text,add referrer text,add utm_source text,add utm_medium text,add utm_campaign text,add source text,add medium text,add campaign text;
     alter table analytics_events add device_type text,add time_zone text,add country text,add city text,add region text,add ip_timezone text;`);
   await db.exec("create table whatsapp_messages(id uuid primary key default gen_random_uuid(),status text check(status in ('queued','sent','delivered','read','failed')));");
+  // Legacy lead capture is deployed independently of the commerce migration history.
+  await db.exec("create table public.um_leads(id uuid primary key default gen_random_uuid(),first_name text,last_name text,email text not null,phone text,status text default 'new',consent_email boolean not null default false,consent_recorded_at timestamptz,metadata jsonb not null default '{}');");
   for (const file of readdirSync("supabase/migrations").filter((v) => v.endsWith(".sql")).sort()) {
     const sql = readFileSync(join("supabase/migrations", file), "utf8").replace(/create extension if not exists pgcrypto;/gi, "");
     try { await db.exec(sql); } catch (e) { throw new Error(`Migration ${file}: ${e instanceof Error ? e.message : e}`); }

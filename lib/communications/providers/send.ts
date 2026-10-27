@@ -1,5 +1,6 @@
 import { providerRequest,ProviderError } from './http';
 import { compileEmail,assertProviderReady } from '../email';
+import { stagingEmailSuppressionReason } from '../stagingEmailSafety';
 export type ProviderMessage={channel:string;category:string;subject?:string|null;html_content?:string|null;text_content?:string|null;structured_content?:Record<string,unknown>;parameter_schema?:Record<string,unknown>};
 const required=(name:string)=>{const value=process.env[name];if(!value)throw new ProviderError('FAILED_PERMANENT',0,'PROVIDER_UNCONFIGURED');return value;};
 const headers=(extra:Record<string,string>)=>({'Content-Type':'application/json',...extra});
@@ -8,6 +9,8 @@ function textVariables(source:string,variables:Record<string,unknown>){
  return source.replace(/{{\s*(\w+)\s*}}/g,(_,key:string)=>{if(!(key in variables))throw new ProviderError('FAILED_PERMANENT',0,'MISSING_VARIABLE');return String(variables[key]).replace(/[\r\n]/g,' ');});
 }
 export async function sendProvider(message:ProviderMessage,artifact:Record<string,unknown>|null,destination:string,variables:Record<string,unknown>,fetcher=fetch):Promise<string>{
+ const emailSuppression=message.channel==='EMAIL'||message.channel==='LEMLIST'?stagingEmailSuppressionReason():null;
+ if(emailSuppression)throw new ProviderError('FAILED_PERMANENT',0,emailSuppression);
  assertProviderReady(message.channel,message.category,artifact);
  if(message.channel==='EMAIL'){
   const html=compileEmail(message.html_content||message.text_content||'',variables);

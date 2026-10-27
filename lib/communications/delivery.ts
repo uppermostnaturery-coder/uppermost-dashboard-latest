@@ -3,10 +3,13 @@ import { deliveryPermission,isAllowedTestDestination } from './preferences';
 import { sendProvider,type ProviderMessage } from './providers/send';
 import { ProviderError,retryDelay } from './providers/http';
 import { resolveMessageVariables } from './variables';
+import { stagingEmailSuppressionReason } from './stagingEmailSafety';
 export async function sendDelivery(id:string){
  const claimed=await rpc<Record<string,unknown>[]>('comm_claim_delivery',{p_id:id});if(!claimed.length)return;
  const delivery=claimed[0];const started=Date.now();let providerAttempted=false;
  try{
+  const emailSuppression=delivery.channel==='EMAIL'||delivery.channel==='LEMLIST'?stagingEmailSuppressionReason():null;
+  if(emailSuppression){assertDb(await db.from('message_deliveries').update({status:'DRY_RUN',lease_until:null,suppression_reason:emailSuppression,latency_ms:Date.now()-started}).eq('id',id));return;}
   const m=await db.from('customer_messages').select('customer_id,order_id,title,body,metadata').eq('id',delivery.customer_message_id).single();assertDb(m);
   if(!m.data)throw new Error('MESSAGE_MISSING');
   if(m.data.metadata?.communication_test===true){

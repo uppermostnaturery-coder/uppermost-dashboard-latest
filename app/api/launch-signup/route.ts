@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { stagingEmailSuppressionReason } from "@/lib/communications/stagingEmailSafety";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { brevoFetch } from "../../../lib/brevo/client";
 import { getBrevoServerEnv } from "../../../lib/brevo/env";
@@ -325,6 +326,7 @@ async function syncLaunchContactToBrevo(args: {
   source: string;
   landingPage: string | null;
 }) {
+  if (stagingEmailSuppressionReason()) return { status: "dry_run" as const, listId: null };
   const { BREVO_MARKETING_LIST_ID } = getBrevoServerEnv();
   const listId = Number(BREVO_MARKETING_LIST_ID);
 
@@ -366,6 +368,7 @@ async function syncLaunchContactToBrevo(args: {
 }
 
 async function sendWelcomeEmail(email: string): Promise<boolean> {
+  if (stagingEmailSuppressionReason()) return false;
   const { BREVO_WELCOME_TEMPLATE_ID } = getBrevoServerEnv();
 
   if (!BREVO_WELCOME_TEMPLATE_ID) return false;
@@ -494,7 +497,7 @@ export async function POST(request: Request) {
         created,
         leadSaved: true,
         consentSaved: consentRecord.saved,
-        brevoSynced: true,
+        brevoSynced: brevo.status === "synced",
         emailSent,
         integrations: {
           consent: consentRecord,
