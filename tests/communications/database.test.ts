@@ -187,6 +187,26 @@ describe("durable SQL boundaries", () => {
   });
 });
 
+describe('template test idempotency',()=>{
+ it('returns one delivery for a repeated actor/request and rejects changed payloads',async()=>{
+  const actor='27000000-0000-4000-8000-000000000001',key='28000000-0000-4000-8000-000000000001';
+  await db.query('insert into auth.users(id) values($1)',[actor]);
+  await db.query("insert into admin_memberships(user_id,role,active) values($1,'ADMIN',true)",[actor]);
+  const t=await db.query<{id:string}>("insert into communication_templates(logical_key,name,purpose) values('IDEMPOTENCY_TEST','Test','TRANSACTIONAL') returning id");
+  const v=await db.query<{id:string}>("insert into communication_template_versions(template_id,version,status,channel,category,subject,html_content,parameter_schema) values($1,1,'DRAFT','EMAIL','TRANSACTIONAL','Test','<p>Test</p>','{\"required\":[]}') returning id",[t.rows[0].id]);
+  const args=[v.rows[0].id,'test@example.test',key,actor,null];
+  const first=await db.query<{id:string}>('select comm_queue_template_test_once($1,$2,$3,$4,$5) as id',args);
+  expect((await db.query('select comm_queue_template_test_once($1,$2,$3,$4,$5) as id',args)).rows).toEqual(first.rows);
+  expect((await db.query("select id from integration_outbox where aggregate_id=$1",[first.rows[0].id])).rows).toHaveLength(1);
+  await expect(db.query('select comm_queue_template_test_once($1,$2,$3,$4,$5)',[args[0],'other@example.test',key,actor,null])).rejects.toThrow('TEST_REQUEST_CONFLICT');
+  expect((await db.query("select m.metadata->>'test_actor_id' as actor,m.metadata->>'test_request_key' as request from customer_messages m join message_deliveries d on d.customer_message_id=m.id where d.id=$1",[first.rows[0].id])).rows).toEqual([{actor,request:key}]);
+ });
+ it('is not executable by anonymous or ordinary authenticated clients',async()=>{
+  expect((await db.query("select has_function_privilege('anon','public.comm_queue_template_test_once(uuid,text,uuid,uuid,text)','EXECUTE') as allowed")).rows).toEqual([{allowed:false}]);
+  expect((await db.query("select has_function_privilege('authenticated','public.comm_queue_template_test_once(uuid,text,uuid,uuid,text)','EXECUTE') as allowed")).rows).toEqual([{allowed:false}]);
+ });
+});
+
 describe("automation timing projection", () => {
   it("retains checkout time separately from cart time and compiles one-hour predicates", async () => {
     const c = "99000000-0000-4000-8000-000000000001";
