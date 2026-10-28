@@ -5,9 +5,9 @@ import { db,rpc,assertDb } from "./store";
 import { publishOutbox } from "./transport";
 export const ruleSchema = z.object({
  name:z.string().min(1).max(160),description:z.string().max(1000).default(''),status:z.enum(['DRAFT','ACTIVE','PAUSED','ARCHIVED']).default('DRAFT'),
- trigger_type:z.enum(['EVENT','SCHEDULE','MANUAL']),trigger_event_type:z.enum(['customer.message.created','commerce.order.confirmed','commerce.payment.changed','commerce.subscription.changed','commerce.shipment.changed']).nullable().optional(),
+ trigger_type:z.enum(['EVENT','SCHEDULE','MANUAL']),trigger_event_type:z.enum(['lead.completed','customer.message.created','commerce.order.confirmed','commerce.payment.changed','commerce.subscription.changed','commerce.shipment.changed']).nullable().optional(),
  cron_expression:z.string().max(100).nullable().optional(),timezone:z.string().max(64).default('Asia/Kolkata'),condition_config:z.unknown().transform(parseCondition),
- action_config:z.object({templates:z.record(z.enum(['EMAIL','WHATSAPP','SMS','LEMLIST']),z.uuid()).refine((v)=>Object.keys(v).length>0),variables:z.record(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/),z.union([z.string().max(2048),z.number(),z.boolean()])).default({}),abandoned_cart:z.boolean().default(false),offer_id:z.uuid().optional()}).strict(),
+ action_config:z.object({templates:z.partialRecord(z.enum(['EMAIL','WHATSAPP','SMS','LEMLIST']),z.uuid()).refine((v)=>Object.keys(v).length>0),variables:z.record(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/),z.union([z.string().max(2048),z.number(),z.boolean()])).default({}),abandoned_cart:z.boolean().default(false),offer_id:z.uuid().optional()}).strict(),
  priority:z.number().int().min(-100).max(100).default(0),frequency_cap:z.object({weekly:z.number().int().min(1).max(10).default(3),cooldown_hours:z.number().int().min(1).max(168).default(24)}).default({weekly:3,cooldown_hours:24}),
  quiet_hours:z.object({start:z.number().int().min(0).max(23).default(21),end:z.number().int().min(0).max(23).default(9)}).default({start:21,end:9}),
  valid_from:z.iso.datetime().nullable().optional(),valid_until:z.iso.datetime().nullable().optional(),
