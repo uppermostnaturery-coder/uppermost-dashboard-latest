@@ -1,0 +1,454 @@
+{
+  "project_ref": "jwsivyxapfnyaafdcdos",
+  "activation_ready": false,
+  "next_run_at": null,
+  "rules": [
+    {
+      "name": "UPPERMOST_WELCOME_V1",
+      "description": "STAGING DRAFT ONLY. Completed signup; recorded email marketing consent. Not activation-ready: verify content, lifecycle suppression and scheduler.",
+      "status": "DRAFT",
+      "trigger_type": "EVENT",
+      "trigger_event_type": "lead.completed",
+      "cron_expression": null,
+      "timezone": "Asia/Kolkata",
+      "condition_config": {
+        "all": [
+          {
+            "field": "email_marketing_allowed",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      },
+      "action_config": {
+        "templates": {
+          "EMAIL": "4e1a1a4d-d285-4c0f-a7fc-c9a05410a5c4"
+        },
+        "variables": {},
+        "abandoned_cart": false
+      },
+      "priority": 0,
+      "frequency_cap": {
+        "weekly": 1,
+        "cooldown_hours": 168
+      },
+      "quiet_hours": {
+        "start": 21,
+        "end": 9
+      },
+      "valid_from": null,
+      "valid_until": null
+    },
+    {
+      "name": "UPPERMOST_PAYMENT_FAILED_V1",
+      "description": "STAGING DRAFT ONLY. FAILED payment projection; order-level recovery/cancellation suppression remains an activation blocker. Not activation-ready: verify content, lifecycle suppression and scheduler.",
+      "status": "DRAFT",
+      "trigger_type": "EVENT",
+      "trigger_event_type": "commerce.payment.changed",
+      "cron_expression": null,
+      "timezone": "Asia/Kolkata",
+      "condition_config": {
+        "all": [
+          {
+            "field": "last_payment_status",
+            "op": "eq",
+            "value": "FAILED"
+          }
+        ]
+      },
+      "action_config": {
+        "templates": {
+          "EMAIL": "bfa0477d-83fe-44c1-a8b2-8e4c48717758"
+        },
+        "variables": {},
+        "abandoned_cart": false
+      },
+      "priority": 0,
+      "frequency_cap": {
+        "weekly": 3,
+        "cooldown_hours": 24
+      },
+      "quiet_hours": {
+        "start": 0,
+        "end": 0
+      },
+      "valid_from": null,
+      "valid_until": null
+    },
+    {
+      "name": "UPPERMOST_PRODUCT_CARE_V1",
+      "description": "STAGING DRAFT ONLY. Latest delivered-shipment update age >=1d and <2d; 15-minute audience polling. Delivery-specific once-only tracking remains blocked. Not activation-ready: verify content, lifecycle suppression and scheduler.",
+      "status": "DRAFT",
+      "trigger_type": "SCHEDULE",
+      "trigger_event_type": null,
+      "cron_expression": "*/15 * * * *",
+      "timezone": "Asia/Kolkata",
+      "condition_config": {
+        "all": [
+          {
+            "field": "email_marketing_allowed",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "last_shipment_status",
+            "op": "in",
+            "value": [
+              "DELIVERED",
+              "Delivered",
+              "delivered"
+            ]
+          },
+          {
+            "field": "last_shipment_at",
+            "op": "days_since_gte",
+            "value": 1
+          },
+          {
+            "none": [
+              {
+                "field": "last_shipment_at",
+                "op": "days_since_gte",
+                "value": 2
+              }
+            ]
+          }
+        ]
+      },
+      "action_config": {
+        "templates": {
+          "EMAIL": "8afe80fe-4967-4ca1-a639-11ae50bd2fc4"
+        },
+        "variables": {},
+        "abandoned_cart": false
+      },
+      "priority": 0,
+      "frequency_cap": {
+        "weekly": 1,
+        "cooldown_hours": 168
+      },
+      "quiet_hours": {
+        "start": 21,
+        "end": 9
+      },
+      "valid_from": null,
+      "valid_until": null
+    },
+    {
+      "name": "UPPERMOST_REPLENISHMENT_REMINDER_V1",
+      "description": "STAGING DRAFT ONLY. Latest delivered-shipment update age >=30d and <31d; no active subscription. SKU consumption and later purchase suppression require verification. Not activation-ready: verify content, lifecycle suppression and scheduler.",
+      "status": "DRAFT",
+      "trigger_type": "SCHEDULE",
+      "trigger_event_type": null,
+      "cron_expression": "*/15 * * * *",
+      "timezone": "Asia/Kolkata",
+      "condition_config": {
+        "all": [
+          {
+            "field": "email_marketing_allowed",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "last_shipment_status",
+            "op": "in",
+            "value": [
+              "DELIVERED",
+              "Delivered",
+              "delivered"
+            ]
+          },
+          {
+            "field": "active_subscription_count",
+            "op": "eq",
+            "value": 0
+          },
+          {
+            "field": "last_shipment_at",
+            "op": "days_since_gte",
+            "value": 30
+          },
+          {
+            "none": [
+              {
+                "field": "last_shipment_at",
+                "op": "days_since_gte",
+                "value": 31
+              }
+            ]
+          }
+        ]
+      },
+      "action_config": {
+        "templates": {
+          "EMAIL": "b5ac85c2-be45-4673-9653-5de9244353ce"
+        },
+        "variables": {},
+        "abandoned_cart": false
+      },
+      "priority": 0,
+      "frequency_cap": {
+        "weekly": 1,
+        "cooldown_hours": 168
+      },
+      "quiet_hours": {
+        "start": 21,
+        "end": 9
+      },
+      "valid_from": null,
+      "valid_until": null
+    },
+    {
+      "name": "UPPERMOST_CHECKOUT_RECOVERY_V1",
+      "description": "STAGING DRAFT ONLY. Checkout age >=1h and <24h; no projected purchase; 15-minute audience polling when dispatcher is available. Not activation-ready: verify content, lifecycle suppression and scheduler.",
+      "status": "DRAFT",
+      "trigger_type": "SCHEDULE",
+      "trigger_event_type": null,
+      "cron_expression": "*/15 * * * *",
+      "timezone": "Asia/Kolkata",
+      "condition_config": {
+        "all": [
+          {
+            "field": "email_marketing_allowed",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "cart_value_paise",
+            "op": "gt",
+            "value": 0
+          },
+          {
+            "field": "cart_checkout_started",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "cart_converted",
+            "op": "eq",
+            "value": false
+          },
+          {
+            "field": "last_checkout_started_at",
+            "op": "hours_since_gte",
+            "value": 1
+          },
+          {
+            "none": [
+              {
+                "field": "last_checkout_started_at",
+                "op": "hours_since_gte",
+                "value": 24
+              }
+            ]
+          }
+        ]
+      },
+      "action_config": {
+        "templates": {
+          "EMAIL": "901eaff0-8983-4f69-9761-1ef10a847561"
+        },
+        "variables": {},
+        "abandoned_cart": true
+      },
+      "priority": 0,
+      "frequency_cap": {
+        "weekly": 1,
+        "cooldown_hours": 168
+      },
+      "quiet_hours": {
+        "start": 21,
+        "end": 9
+      },
+      "valid_from": null,
+      "valid_until": null
+    },
+    {
+      "name": "UPPERMOST_CART_RECOVERY_V1",
+      "description": "STAGING DRAFT ONLY. Cart inactivity >=1h and <24h; no checkout or projected purchase; 15-minute audience polling when dispatcher is available. Not activation-ready: verify content, lifecycle suppression and scheduler.",
+      "status": "DRAFT",
+      "trigger_type": "SCHEDULE",
+      "trigger_event_type": null,
+      "cron_expression": "*/15 * * * *",
+      "timezone": "Asia/Kolkata",
+      "condition_config": {
+        "all": [
+          {
+            "field": "email_marketing_allowed",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "cart_value_paise",
+            "op": "gt",
+            "value": 0
+          },
+          {
+            "field": "cart_checkout_started",
+            "op": "eq",
+            "value": false
+          },
+          {
+            "field": "cart_converted",
+            "op": "eq",
+            "value": false
+          },
+          {
+            "field": "last_cart_activity_at",
+            "op": "hours_since_gte",
+            "value": 1
+          },
+          {
+            "none": [
+              {
+                "field": "last_cart_activity_at",
+                "op": "hours_since_gte",
+                "value": 24
+              }
+            ]
+          }
+        ]
+      },
+      "action_config": {
+        "templates": {
+          "EMAIL": "05f499d3-7e1e-4ebb-a588-eee63bb7c843"
+        },
+        "variables": {},
+        "abandoned_cart": true
+      },
+      "priority": 0,
+      "frequency_cap": {
+        "weekly": 1,
+        "cooldown_hours": 168
+      },
+      "quiet_hours": {
+        "start": 21,
+        "end": 9
+      },
+      "valid_from": null,
+      "valid_until": null
+    },
+    {
+      "name": "UPPERMOST_SHIPPING_UPDATE_V1",
+      "description": "STAGING DRAFT ONLY. Explicit shipping-status allowlist; provider variant and event-order checks remain activation blockers. Not activation-ready: verify content, lifecycle suppression and scheduler.",
+      "status": "DRAFT",
+      "trigger_type": "EVENT",
+      "trigger_event_type": "commerce.shipment.changed",
+      "cron_expression": null,
+      "timezone": "Asia/Kolkata",
+      "condition_config": {
+        "all": [
+          {
+            "field": "last_shipment_status",
+            "op": "in",
+            "value": [
+              "ORDER_SHIPPED",
+              "IN_TRANSIT",
+              "OUT_FOR_DELIVERY",
+              "SHIPPED",
+              "Shipped",
+              "IN TRANSIT",
+              "In Transit",
+              "OUT FOR DELIVERY",
+              "Out For Delivery"
+            ]
+          }
+        ]
+      },
+      "action_config": {
+        "templates": {
+          "EMAIL": "3ae1760e-b208-4130-8fff-daf96998ff3f"
+        },
+        "variables": {},
+        "abandoned_cart": false
+      },
+      "priority": 0,
+      "frequency_cap": {
+        "weekly": 3,
+        "cooldown_hours": 24
+      },
+      "quiet_hours": {
+        "start": 0,
+        "end": 0
+      },
+      "valid_from": null,
+      "valid_until": null
+    },
+    {
+      "name": "UPPERMOST_ORDER_CONFIRMATION_V1",
+      "description": "STAGING DRAFT ONLY. Authoritative order confirmation event; requires order-specific content resolution. Not activation-ready: verify content, lifecycle suppression and scheduler.",
+      "status": "DRAFT",
+      "trigger_type": "EVENT",
+      "trigger_event_type": "commerce.order.confirmed",
+      "cron_expression": null,
+      "timezone": "Asia/Kolkata",
+      "condition_config": {
+        "all": [
+          {
+            "field": "order_count",
+            "op": "gte",
+            "value": 1
+          }
+        ]
+      },
+      "action_config": {
+        "templates": {
+          "EMAIL": "f2ebae36-78a6-48fc-9dfa-3f2001bc607d"
+        },
+        "variables": {},
+        "abandoned_cart": false
+      },
+      "priority": 0,
+      "frequency_cap": {
+        "weekly": 3,
+        "cooldown_hours": 24
+      },
+      "quiet_hours": {
+        "start": 0,
+        "end": 0
+      },
+      "valid_from": null,
+      "valid_until": null
+    },
+    {
+      "name": "UPPERMOST_DELIVERY_CONFIRMATION_V1",
+      "description": "STAGING DRAFT ONLY. Explicit Delivered status allowlist; exact shipment correlation remains an activation blocker. Not activation-ready: verify content, lifecycle suppression and scheduler.",
+      "status": "DRAFT",
+      "trigger_type": "EVENT",
+      "trigger_event_type": "commerce.shipment.changed",
+      "cron_expression": null,
+      "timezone": "Asia/Kolkata",
+      "condition_config": {
+        "all": [
+          {
+            "field": "last_shipment_status",
+            "op": "in",
+            "value": [
+              "DELIVERED",
+              "Delivered",
+              "delivered"
+            ]
+          }
+        ]
+      },
+      "action_config": {
+        "templates": {
+          "EMAIL": "db2c8536-440b-458f-bea9-b026c8d5607a"
+        },
+        "variables": {},
+        "abandoned_cart": false
+      },
+      "priority": 0,
+      "frequency_cap": {
+        "weekly": 3,
+        "cooldown_hours": 24
+      },
+      "quiet_hours": {
+        "start": 0,
+        "end": 0
+      },
+      "valid_from": null,
+      "valid_until": null
+    }
+  ]
+}
