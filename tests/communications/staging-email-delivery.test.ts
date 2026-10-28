@@ -75,6 +75,17 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 describe('strict staging email dry-run at real delivery/provider boundaries', () => {
+  it('allows one audited dedicated email test only while the window is armed',async()=>{
+    fixture({template:true});const version='26000000-0000-4000-8000-000000000001',expires=new Date(Date.now()+15*60000).toISOString();
+    for(const [key,value] of Object.entries({COMMUNICATION_STAGING_TEST_ENABLED:'true',COMMUNICATION_STAGING_TEST_EMAIL:'dummy@example.test',COMMUNICATION_STAGING_TEST_VERSION_ID:version,COMMUNICATION_STAGING_TEST_EXPIRES_AT:expires}))vi.stubEnv(key,value);
+    state.delivery.template_version_id=version;state.rows.customer_messages.customer_id=null;
+    Object.assign(state.rows.customer_messages.metadata,{test_actor_id:'27000000-0000-4000-8000-000000000001',test_request_key:'28000000-0000-4000-8000-000000000001',staging_test_window:expires});
+    Object.assign(state.rows.communication_template_versions,{id:version,template_id:'dedicated',status:'ACTIVE'});state.rows.communication_templates={logical_key:'EMAIL_QSTASH_INTEGRATION_TEST'};state.rows.communication_template_provider_artifacts={sync_mode:'DIRECT_CONTENT'};
+    await sendDelivery('delivery');await sendDelivery('delivery');expect(http).toHaveBeenCalledTimes(1);expect(state.status).toBe('ACCEPTED');
+  });
+  it.each([false,true])('keeps ordinary and legacy test mail blocked even with the test switch on, template=%s',async template=>{
+    fixture({template});vi.stubEnv('COMMUNICATION_STAGING_TEST_ENABLED','true');await sendDelivery('delivery');expect(http).not.toHaveBeenCalled();expect(state.status).toBe('DRY_RUN');
+  });
   it.each([false, true])('suppresses normal email, allowlisted=%s, and persists DRY_RUN', async allowed => {
     fixture({ allowed });
     await sendDelivery('delivery');
