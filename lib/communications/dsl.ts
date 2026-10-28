@@ -4,13 +4,13 @@ export const featureFields = {
   last_order_at: "date", first_order_at: "date", last_order_total_paise: "number",
   ordered_product_codes: "array", ordered_skus: "array", active_subscription_count: "number",
   subscription_status: "string", next_subscription_charge_at: "date", last_payment_status: "string", last_shipment_status: "string",
-  discount_order_ratio: "number", last_product_view: "string", last_seen_at: "date", last_cart_activity_at: "date",
+  discount_order_ratio: "number", last_product_view: "string", last_seen_at: "date", last_cart_activity_at: "date", last_checkout_started_at: "date", last_shipment_at: "date",
   cart_value_paise: "number", cart_checkout_started: "boolean", cart_converted: "boolean",
   email_marketing_allowed: "boolean", whatsapp_marketing_allowed: "boolean", sms_marketing_allowed: "boolean",
 } as const;
 export type Field = keyof typeof featureFields;
 export type Condition = { all: Condition[] } | { any: Condition[] } | { none: Condition[] } | { field: Field; op: string; value?: unknown };
-const operators = ["eq","neq","gt","gte","lt","lte","in","not_in","contains","exists","before","after","days_since_gte","days_since_lte"];
+const operators = ["eq","neq","gt","gte","lt","lte","in","not_in","contains","exists","before","after","days_since_gte","days_since_lte","hours_since_gte","hours_since_lte"];
 export function parseCondition(input: unknown): Condition {
   let count = 0;
   function parse(value: unknown, depth: number): Condition {
@@ -23,7 +23,7 @@ export function parseCondition(input: unknown): Condition {
     if (Object.keys(v).some((k) => !["field","op","value"].includes(k)) || !(String(v.field) in featureFields) || !operators.includes(String(v.op))) throw new Error("INVALID_RULE_FIELD");
     const type = featureFields[v.field as Field]; const op = String(v.op);
     const scalar = (x: unknown) => type === "number" ? typeof x === "number" && Number.isFinite(x) : type === "boolean" ? typeof x === "boolean" : typeof x === "string" && x.length <= 128 && (type !== "date" || Number.isFinite(Date.parse(x)));
-    const valid = op === "exists" ? v.value === undefined || typeof v.value === "boolean" : op.startsWith("days_since_") ? type === "date" && typeof v.value === "number" && v.value >= 0 && v.value <= 3650 : ["in","not_in"].includes(op) ? Array.isArray(v.value) && v.value.length > 0 && v.value.length <= 20 && v.value.every(scalar) : op === "contains" ? type === "array" && typeof v.value === "string" && v.value.length <= 128 : scalar(v.value);
+    const valid = op === "exists" ? v.value === undefined || typeof v.value === "boolean" : op.startsWith("hours_since_") ? type === "date" && typeof v.value === "number" && Number.isInteger(v.value) && v.value >= 0 && v.value <= 87600 : op.startsWith("days_since_") ? type === "date" && typeof v.value === "number" && v.value >= 0 && v.value <= 3650 : ["in","not_in"].includes(op) ? Array.isArray(v.value) && v.value.length > 0 && v.value.length <= 20 && v.value.every(scalar) : op === "contains" ? type === "array" && typeof v.value === "string" && v.value.length <= 128 : scalar(v.value);
     if (!valid || (["before","after"].includes(op) && type !== "date") || (["gt","gte","lt","lte"].includes(op) && !["date","number"].includes(type))) throw new Error("INVALID_RULE_VALUE");
     return { field: v.field as Field, op, value: v.value };
   }
@@ -40,6 +40,8 @@ export function evaluateCondition(c: Condition, feature: Record<string, unknown>
     case "eq": return a === b; case "neq": return a !== b;
     case "in": return (b as unknown[]).includes(a); case "not_in": return !(b as unknown[]).includes(a);
     case "contains": return Array.isArray(a) && a.includes(b);
+    case "hours_since_gte": return Date.parse(String(a)) <= now.getTime() - Number(b)*3600000;
+    case "hours_since_lte": return Date.parse(String(a)) >= now.getTime() - Number(b)*3600000;
     case "days_since_gte": return Date.parse(String(a)) <= now.getTime() - Number(b)*86400000;
     case "days_since_lte": return Date.parse(String(a)) >= now.getTime() - Number(b)*86400000;
     case "before": case "lt": return typeof a === "number" ? a < Number(b) : String(a) < String(b);
@@ -60,6 +62,7 @@ export function compileCondition(c: Condition, now = new Date()): { sql: string;
     }
     const leaf = v as Extract<Condition, { field: Field }>; const field = `"${leaf.field}"`;
     if (leaf.op === "exists") return `${field} IS ${leaf.value === false ? "" : "NOT "}NULL`;
+    if (leaf.op.startsWith("hours_since")) return `${field} ${leaf.op.endsWith("gte") ? "<=" : ">="} ${bind(new Date(now.getTime()-Number(leaf.value)*3600000).toISOString())}`;
     if (leaf.op.startsWith("days_since")) return `${field} ${leaf.op.endsWith("gte") ? "<=" : ">="} ${bind(new Date(now.getTime()-Number(leaf.value)*86400000).toISOString())}`;
     if (["in","not_in"].includes(leaf.op)) return `${field} ${leaf.op === "in" ? "= ANY" : "<> ALL"}(${bind(leaf.value)})`;
     if (leaf.op === "contains") return `${field} @> ${bind([leaf.value])}`;
