@@ -6,6 +6,7 @@ import { parseCondition } from '../communications/dsl';
 import { saveTemplate,submitProvider,activateTemplate,refreshMetaArtifact } from '../communications/templates';
 import { compileEmail } from '../communications/email';
 import { AdminError } from './policy';
+import { stagingEmailSuppressionReason,stagingTemplateTestWindow } from '../communications/stagingEmailSafety';
 const id=z.uuid();
 export const readOperations=new Set(['PREVIEW_AUDIENCE','PREVIEW_EMAIL','NEXT_RUNS']);
 export async function communicationOverview(){
@@ -50,7 +51,12 @@ export async function communicationMutation(operation:string,input:unknown,actor
   return rpc('comm_start_run',{p_rule_id:v.id,p_expected_next:null,p_next:null,p_key:`manual:${v.id}:${v.request_key}`,p_dry:v.dry_run||process.env.COMMUNICATION_DRY_RUN!=='false'});
  }
  if(operation==='SAVE_TEMPLATE')return saveTemplate(input,actor);
- if(operation==='TEST_TEMPLATE'){const v=z.object({id,destination:z.string().min(3).max(254)}).strict().parse(input);return rpc('comm_queue_template_test',{p_version_id:v.id,p_destination:v.destination});}
+ if(operation==='TEST_TEMPLATE'){
+  const v=z.object({id,destination:z.string().min(3).max(254),request_key:z.uuid().optional()}).strict().parse(input);
+  if(stagingEmailSuppressionReason()===null)return rpc('comm_queue_template_test',{p_version_id:v.id,p_destination:v.destination});
+  if(!v.request_key)throw new AdminError('TEST_REQUEST_KEY_REQUIRED',400);
+  return rpc('comm_queue_template_test_once',{p_version_id:v.id,p_destination:v.destination,p_request_key:v.request_key,p_actor:actor,p_staging_window:stagingTemplateTestWindow(v.id,v.destination)});
+ }
  if(operation==='ACTIVATE_TEMPLATE'){await activateTemplate(id.parse((input as {id:unknown}).id));return {ok:true};}
  if(operation==='SUBMIT_PROVIDER'){await submitProvider(id.parse((input as {id:unknown}).id));return {ok:true};}
  if(operation==='REFRESH_PROVIDER')return refreshMetaArtifact(id.parse((input as {id:unknown}).id));
