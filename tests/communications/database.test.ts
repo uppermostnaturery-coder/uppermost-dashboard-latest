@@ -186,3 +186,15 @@ describe("durable SQL boundaries", () => {
     try{expect((await db.query('select * from analytics_events limit 1')).rows).toHaveLength(0);}finally{await db.exec('reset role');}
   });
 });
+
+describe("automation timing projection", () => {
+  it("retains checkout time separately from cart time and compiles one-hour predicates", async () => {
+    const c = "99000000-0000-4000-8000-000000000001";
+    await db.query("insert into customers(id,name,normalized_email) values($1,'Timing','timing@example.test')", [c]);
+    await db.query("insert into communication_behavior_features(visitor_id,customer_id,recent_add_to_cart_at,last_checkout_started_at) values('timing-visitor',$1,now()-interval '3 hours',now()-interval '30 minutes')", [c]);
+    expect((await db.query("select customer_id from comm_audience($1,null,500,$2)", [JSON.stringify({field:"last_checkout_started_at",op:"hours_since_gte",value:1}),c])).rows).toHaveLength(0);
+    await db.query("update communication_customer_features set last_checkout_started_at=now()-interval '1 hour',last_shipment_at=now()-interval '1 day' where customer_id=$1",[c]);
+    expect((await db.query("select customer_id from comm_audience($1,null,500,$2)", [JSON.stringify({all:[{field:"last_checkout_started_at",op:"hours_since_gte",value:1},{field:"last_shipment_at",op:"days_since_gte",value:1}]}),c])).rows).toHaveLength(1);
+    expect((await db.query("select customer_id from comm_audience($1,null,500,$2)", [JSON.stringify({field:"last_checkout_started_at",op:"hours_since_lte",value:0}),c])).rows).toHaveLength(0);
+  });
+});
