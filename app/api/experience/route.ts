@@ -54,7 +54,7 @@ export async function GET(request: Request) {
           .select("status, description, location, occurred_at")
           .eq("shipment_id", shipment.id)
           .order("occurred_at", { ascending: false })
-      : { data: [] as any[] };
+      : { data: [] };
     let subscription: Record<string, unknown> | undefined;
     if (order.subscription_id) {
       const [sub, mandate, subItems] = await Promise.all([

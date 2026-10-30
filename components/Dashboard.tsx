@@ -25,6 +25,9 @@ import {
   Bookmark,
 } from "lucide-react";
 
+import type { LucideIcon } from "lucide-react";
+import type { Plugin, TooltipItem } from "chart.js";
+
 import LemlistAnalytics from "./LemlistAnalytics";
 import BrevoAnalytics from "./BrevoAnalytics";
 import Communications from "./operations/Communications";
@@ -100,6 +103,28 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarEleme
 
 // ─── Types ───────────────────────────────────
 type Page = "overview" | "realtime" | "funnel" | "pages" | "visitors" | "events" | "sources" | "scrolldepth" | "lemlist" | "metaAds" | "brevo" |"graphs" | "communications" | "offers";
+
+type MetaPlatform = "facebook" | "instagram" | "messenger" | "audienceNetwork";
+type MetaPlatformMetric = "Reach" | "Impressions" | "Clicks" | "Likes" | "Comments" | "Shares" | "Saves" | "Reposts" | "Leads" | "Spend";
+type MetaStats = Record<"spend" | "impressions" | "reach" | "clicks" | "ctr" | "cpc" | "leads" | MetaPlatform, number>
+  & Partial<Record<`${MetaPlatform}${MetaPlatformMetric}` | "likes", number>>
+  & { connected: boolean; error: string; instagramPosts?: InstagramPostRow[] };
+
+type InstagramPostRow = {
+  title?: string;
+  caption?: string;
+  type?: string;
+  published?: string;
+  createdAt?: string;
+  views?: number;
+  impressions?: number;
+  likes?: number;
+  comments?: number;
+  shares?: number;
+  reposts?: number;
+  saves?: number;
+  reach?: number;
+};
 
 interface Metrics {
   visitors: number;
@@ -1030,10 +1055,10 @@ function CompactBarStrip({ items }: { items: BarItem[] }) {
       legend: { display: false },
       tooltip: {
         callbacks: {
-          title: (items: any) => items[0]?.label || "",
-          label: (ctx: any) => {
+          title: (items: TooltipItem<"bar">[]) => items[0]?.label || "",
+          label: (ctx: TooltipItem<"bar">) => {
             const total = ctx.chart.data.datasets.reduce(
-              (sum: number, dataset: any) => sum + Number(dataset.data[ctx.dataIndex] || 0),
+              (sum, dataset) => sum + Number(dataset.data[ctx.dataIndex] || 0),
               0
             );
             return `Total: ${total}`;
@@ -1105,7 +1130,7 @@ function CompactBarStrip({ items }: { items: BarItem[] }) {
     </div>
   );
 }
-function MetaPlatformGroupedChart({ stats }: { stats: any }) {
+function MetaPlatformGroupedChart({ stats }: { stats: MetaStats }) {
   const chartData = {
     labels: ["Facebook", "Instagram", "Messenger", "Audience Network"],
     datasets: [
@@ -1464,23 +1489,7 @@ function PlatformCard({
 // It reads real post data from `metaStats.instagramPosts` when the API provides it.
 // Until Instagram Graph API post insights are connected, it falls back to a clean empty row.
 
-function InstagramPostPerformance({ stats }: { stats: any }) {
-  type InstagramPostRow = {
-    title?: string;
-    caption?: string;
-    type?: string;
-    published?: string;
-    createdAt?: string;
-    views?: number;
-    impressions?: number;
-    likes?: number;
-    comments?: number;
-    shares?: number;
-    reposts?: number;
-    saves?: number;
-    reach?: number;
-  };
-
+function InstagramPostPerformance({ stats }: { stats: MetaStats }) {
   type InstagramPostTotals = {
     views: number;
     likes: number;
@@ -1591,7 +1600,7 @@ function InstagramPostPerformance({ stats }: { stats: any }) {
           ))}
         </div>
 
-        {displayPosts.map((post: any, index: number) => (
+        {displayPosts.map((post, index) => (
           <div
             key={`${post.title}-${index}`}
             style={{
@@ -1659,7 +1668,7 @@ type GraphGroupBy = "auto" | "hour" | "day" | "week" | "month";
   checkouts: 0,
   purchases: 0,
 });
-const [metaAdsData, setMetaAdsData] = useState<any>(null);
+const [metaAdsData, setMetaAdsData] = useState<Record<string, unknown> | null>(null);
 const [metaAdsLoading, setMetaAdsLoading] = useState(false);
 const [metaAdsError, setMetaAdsError] = useState<string | null>(null);
   const [pvData, setPvData]         = useState<{ labels: string[]; values: number[] }>({ labels: [], values: [] });
@@ -1680,7 +1689,7 @@ const [metaAdsError, setMetaAdsError] = useState<string | null>(null);
   const [productViews, setProductViews] = useState(0);
   const [devices, setDevices]       = useState<BarItem[]>([]);
   const [browsers, setBrowsers]     = useState<BarItem[]>([]);
-  const [metaStats, setMetaStats] = useState({ spend: 0, impressions: 0, reach: 0, clicks: 0, ctr: 0, cpc: 0, leads: 0, facebook: 0, instagram: 0, messenger: 0, audienceNetwork: 0, connected: false, error: "" });
+  const [metaStats, setMetaStats] = useState<MetaStats>({ spend: 0, impressions: 0, reach: 0, clicks: 0, ctr: 0, cpc: 0, leads: 0, facebook: 0, instagram: 0, messenger: 0, audienceNetwork: 0, connected: false, error: "" });
   const [osData, setOsData]         = useState<BarItem[]>([]);
   const [eventFeed, setEventFeed]   = useState<EventRow[]>([]);
   const [liveVisitors, setLiveVisitors]           = useState<LiveVisitor[]>([]);
@@ -3280,7 +3289,7 @@ const loadEventFeed = useCallback(async () => {
   .limit(100);
     if (!data) return;
     const sids = Array.from(new Set(data.map(v => v.current_session_id).filter(Boolean))) as string[];
-    let sessionMap: Record<string, { device_type?: string; browser?: string; os?: string }> = {};
+    const sessionMap: Record<string, { device_type?: string; browser?: string; os?: string }> = {};
     if (sids.length) {
       const { data: sd } = await supabase.from("analytics_sessions").select("session_id, device_type, browser, os").in("session_id", sids);
       (sd || []).forEach(s => { sessionMap[s.session_id] = s; });
@@ -3308,14 +3317,16 @@ const loadEventFeed = useCallback(async () => {
   // Aligned both to use the same purchase event family.
   const loadFunnel = useCallback(async () => {
     const since = rangeStart(range);
+    const createCountQuery = () => supabase.from("analytics_events").select("event_name", { count: "exact", head: true });
+    type FunnelQuery = ReturnType<typeof createCountQuery>;
     const steps = [
-      { name: "Page Views",  match: (q: any) => q.eq("event_name", "page_view"),        color: "#c98a4b" },
-      { name: "Add to Cart", match: (q: any) => q.eq("event_name", "add_to_cart"),      color: "#8aa6a3" },
-      { name: "Checkout",    match: (q: any) => q.eq("event_name", "checkout_started"), color: "#d9a441" },
-      { name: "Purchase",    match: (q: any) => q.ilike("event_name", "purchase%"),     color: "#8fae6b" },
+      { name: "Page Views",  match: (q: FunnelQuery) => q.eq("event_name", "page_view"),        color: "#c98a4b" },
+      { name: "Add to Cart", match: (q: FunnelQuery) => q.eq("event_name", "add_to_cart"),      color: "#8aa6a3" },
+      { name: "Checkout",    match: (q: FunnelQuery) => q.eq("event_name", "checkout_started"), color: "#d9a441" },
+      { name: "Purchase",    match: (q: FunnelQuery) => q.ilike("event_name", "purchase%"),     color: "#8fae6b" },
     ];
     const counts = await Promise.all(steps.map(s => {
-      const q = supabase.from("analytics_events").select("event_name", { count: "exact", head: true });
+      const q = createCountQuery();
       return s.match(q).gte("created_at", since);
     }));
     setFunnelData(steps.map((s, i) => ({ name: s.name, count: counts[i].count ?? 0, color: s.color })));
@@ -3700,9 +3711,9 @@ const buyNowChartData = {
       hoverOffset: 6,
     }],
   };
-  const donutPercentagePlugin = {
+  const donutPercentagePlugin: Plugin<"doughnut"> = {
   id: "donutPercentagePlugin",
-  afterDatasetsDraw(chart: any) {
+  afterDatasetsDraw(chart) {
     const { ctx } = chart;
     const dataset = chart.data.datasets[0];
     const meta = chart.getDatasetMeta(0);
@@ -3716,28 +3727,28 @@ const buyNowChartData = {
 
     ctx.save();
 
-    meta.data.forEach((arc: any, index: number) => {
+    meta.data.forEach((arc, index) => {
       const value = Number(dataset.data[index] || 0);
       if (!value) return;
 
       const pct = Math.round((value / total) * 100);
-      const label = chart.data.labels[index] || "";
-      const color = dataset.backgroundColor[index];
+      const label = (chart.data.labels![index] || "") as string;
+      const color = (dataset.backgroundColor as string[])[index];
 
-      const props = arc.getProps(
+      const props = (arc as ArcElement).getProps(
         ["x", "y", "startAngle", "endAngle", "outerRadius"],
         true
       );
 
       const angle = (props.startAngle + props.endAngle) / 2;
 
-      const startX = props.x + Math.cos(angle) * props.outerRadius;
-      const startY = props.y + Math.sin(angle) * props.outerRadius;
+      const startX = props.x! + Math.cos(angle) * props.outerRadius;
+      const startY = props.y! + Math.sin(angle) * props.outerRadius;
 
-      const midX = props.x + Math.cos(angle) * (props.outerRadius + 18);
-      const midY = props.y + Math.sin(angle) * (props.outerRadius + 18);
+      const midX = props.x! + Math.cos(angle) * (props.outerRadius + 18);
+      const midY = props.y! + Math.sin(angle) * (props.outerRadius + 18);
 
-      const isRight = midX >= props.x;
+      const isRight = midX >= props.x!;
       const endX = midX + (isRight ? 42 : -42);
       const endY = midY;
 
@@ -3876,7 +3887,7 @@ const buyNowChartData = {
   ["graphs", "Special Graphs", BarChart3],
   ["communications", "Communications", MessageCircle],
   ["offers", "Offers", Heart],
-] as [Page, string, any][]).map(([page, label, Icon]) => (
+] as [Page, string, LucideIcon][]).map(([page, label, Icon]) => (
     <div key={page} onClick={() => setActivePage(page)} style={{
               display: "flex", alignItems: "center", gap: 10, padding: "8px 18px",
               cursor: "pointer", color: activePage === page ? "var(--text)" : "var(--muted)",
@@ -4202,7 +4213,7 @@ const buyNowChartData = {
 
 <MetricCard
   label="Total Likes"
- value={Number((metaStats as any).instagramLikes || (metaStats as any).likes || 0).toLocaleString()}
+ value={Number(metaStats.instagramLikes || metaStats.likes || 0).toLocaleString()}
   color="var(--pink)"
   badge="Engagement"
   icon={<Heart size={18} color="#e25575" />}
@@ -4253,22 +4264,22 @@ const buyNowChartData = {
   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14 }}>
     <PlatformCard
       title="Facebook"
-      reach={Number((metaStats as any).facebookReach || 0)}
-      views={Number((metaStats as any).facebookImpressions || 0)}
-      likes={Number((metaStats as any).facebookLikes || 0)}
-      comments={Number((metaStats as any).facebookComments || 0)}
-      shares={Number((metaStats as any).facebookShares || 0)}
-      clicks={Number((metaStats as any).facebookClicks || metaStats.facebook || 0)}
+      reach={Number(metaStats.facebookReach || 0)}
+      views={Number(metaStats.facebookImpressions || 0)}
+      likes={Number(metaStats.facebookLikes || 0)}
+      comments={Number(metaStats.facebookComments || 0)}
+      shares={Number(metaStats.facebookShares || 0)}
+      clicks={Number(metaStats.facebookClicks || metaStats.facebook || 0)}
     />
 
     <PlatformCard
       title="Instagram"
-      reach={Number((metaStats as any).instagramReach || 0)}
-      views={Number((metaStats as any).instagramImpressions || 0)}
-      likes={Number((metaStats as any).instagramLikes || 0)}
-      comments={Number((metaStats as any).instagramComments || 0)}
-      shares={Number((metaStats as any).instagramSaves || 0)}
-      clicks={Number((metaStats as any).instagramClicks || metaStats.instagram || 0)}
+      reach={Number(metaStats.instagramReach || 0)}
+      views={Number(metaStats.instagramImpressions || 0)}
+      likes={Number(metaStats.instagramLikes || 0)}
+      comments={Number(metaStats.instagramComments || 0)}
+      shares={Number(metaStats.instagramSaves || 0)}
+      clicks={Number(metaStats.instagramClicks || metaStats.instagram || 0)}
     />
   </div>
 </Panel>

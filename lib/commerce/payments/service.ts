@@ -36,13 +36,28 @@ export function embeddedRecurringTokenEvidence(payment: RazorpayPayment) {
   return { embedded, providerTokenId, eventType };
 }
 
+type PaymentAttemptForReconciliation = {
+  id: string;
+  order_id: string;
+  provider_order_id: string;
+  provider_payment_id?: string | null;
+  amount_paise: number;
+  currency?: string | null;
+  status: string;
+  normalized_state: string;
+  kind: string;
+  checkout_session_id?: string | null;
+  subscription_cycle_id?: string | null;
+};
+
 export async function reconcilePaymentAttempt(args: {
-  attempt: any;
+  attempt: Record<string, unknown>;
   payment: RazorpayPayment;
   providerEventId?: string;
   providerEventCreatedAt?: number;
 }) {
-  const { attempt, payment } = args;
+  const { payment } = args;
+  const attempt = args.attempt as PaymentAttemptForReconciliation;
   try {
     validateProviderPaymentIdentity({
       expectedProviderOrderId: attempt.provider_order_id,

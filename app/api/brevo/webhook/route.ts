@@ -10,7 +10,7 @@ function normalizeEvent(event: string) {
   return event;
 }
 
-function getEventTimestamp(payload: any) {
+function getEventTimestamp(payload: Record<string, unknown> | null | undefined) {
   if (payload?.ts_event) {
     return new Date(Number(payload.ts_event) * 1000).toISOString();
   }
@@ -125,14 +125,14 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("BREVO WEBHOOK ERROR:", error);
 
     return NextResponse.json(
       {
         success: false,
         error:
-          error?.message ||
+          (error as { message?: string } | null)?.message ||
           "Webhook processing failed",
       },
       { status: 500 }

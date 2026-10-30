@@ -244,7 +244,7 @@ export async function prepareCheckout(input: PrepareInput, idempotencyKey: strin
     subscriptionId = subscription.id;
     await supabaseAdmin.from("orders").update({ subscription_id: subscriptionId }).eq("id", order.id);
     const subscriptionLines = current.snapshot.initial.items.filter((item) => item.purchase_mode === "SUBSCRIPTION");
-    const orderItemByLine = new Map(orderItems.map((item: any) => [item.line_id, item.id]));
+    const orderItemByLine = new Map(orderItems.map((item) => [item.line_id, item.id]));
     const itemInsert = await supabaseAdmin.from("subscription_items").insert(
       subscriptionLines.map((item) => ({
         subscription_id: subscriptionId,

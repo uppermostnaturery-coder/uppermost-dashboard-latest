@@ -31,7 +31,7 @@ export async function POST(request: Request) {
       return commerceJson({ok:false,error:{code:'SIMULATION_REAL_WEBHOOK_BLOCKED',message:'Carrier callbacks are disabled during staging simulation.'}},409,null);
     }
     const raw = await request.text();
-    const payload = JSON.parse(raw) as Record<string, any>;
+    const payload = JSON.parse(raw) as Record<string, unknown>;
     if(stagingWhatsAppWorkflowsEnabled()){
       const {data,error}=await supabaseAdmin.rpc('comm_ingest_shipment_event',{p_payload:{
         ...payload,awb:payload.awb??payload.awb_code,shipment_id:payload.shipment_id??payload.sr_shipment_id,
