@@ -3,21 +3,43 @@ import { deliveryPermission,isAllowedTestDestination } from './preferences';
 import { sendProvider,type ProviderMessage } from './providers/send';
 import { ProviderError,retryDelay } from './providers/http';
 import { resolveMessageVariables } from './variables';
+import {communicationSendSuppressionReason} from './sendSafety';
+import {stagingWhatsAppWorkflowsEnabled} from './whatsappWorkflows';
+import { stagingEmailSuppressionReason,authorizeStagingTemplateTest,type StagingTemplateTestAuthorization } from './stagingEmailSafety';
 export async function sendDelivery(id:string){
  const claimed=await rpc<Record<string,unknown>[]>('comm_claim_delivery',{p_id:id});if(!claimed.length)return;
  const delivery=claimed[0];const started=Date.now();let providerAttempted=false;
  try{
+  if(delivery.channel==='WHATSAPP'&&stagingWhatsAppWorkflowsEnabled()){
+   const reason=await rpc<string|null>('comm_whatsapp_delivery_permission',{p_delivery_id:id});
+   if(typeof reason==='string'&&reason){assertDb(await db.from('message_deliveries').update({status:'SUPPRESSED',lease_until:null,suppression_reason:reason}).eq('id',id));return;}
+  }
+  const sendSuppression=communicationSendSuppressionReason();
+  if(sendSuppression){assertDb(await db.from('message_deliveries').update({status:'DRY_RUN',lease_until:null,next_attempt_at:null,suppression_reason:sendSuppression,latency_ms:Date.now()-started}).eq('id',id));return;}
+  const emailSuppression=delivery.channel==='EMAIL'||delivery.channel==='LEMLIST'?stagingEmailSuppressionReason():null;
+  const suppress=async()=>{assertDb(await db.from('message_deliveries').update({status:'DRY_RUN',lease_until:null,suppression_reason:emailSuppression,latency_ms:Date.now()-started}).eq('id',id));};
+  if(emailSuppression&&!(delivery.channel==='EMAIL'&&emailSuppression==='STAGING_EMAIL_DRY_RUN'&&process.env.COMMUNICATION_STAGING_TEST_ENABLED==='true')){await suppress();return;}
   const m=await db.from('customer_messages').select('customer_id,order_id,title,body,metadata').eq('id',delivery.customer_message_id).single();assertDb(m);
   if(!m.data)throw new Error('MESSAGE_MISSING');
   if(m.data.metadata?.communication_test===true){
    const version=await db.from('communication_template_versions').select('*').eq('id',delivery.template_version_id).single();assertDb(version);
    const artifact=await db.from('communication_template_provider_artifacts').select('*').eq('template_version_id',delivery.template_version_id).maybeSingle();assertDb(artifact);
    const destination=String(m.data.metadata.test_destination||'');
+   if(delivery.channel==='WHATSAPP'&&version.data.category==='MARKETING'&&!await rpc<boolean>('comm_whatsapp_phone_allowed',{p_phone:destination})){
+    assertDb(await db.from('message_deliveries').update({status:'SUPPRESSED',lease_until:null,suppression_reason:'CONSENT_REQUIRED'}).eq('id',id));return;
+   }
+   let authorization:StagingTemplateTestAuthorization|null=null;
+   if(emailSuppression){
+    const template=await db.from('communication_templates').select('logical_key').eq('id',version.data.template_id).single();assertDb(template);
+    authorization=authorizeStagingTemplateTest({customerId:m.data.customer_id,channel:delivery.channel,versionId:version.data.id,templateKey:template.data?.logical_key,metadata:m.data.metadata});
+    if(!authorization||version.data.status!=='ACTIVE'||artifact.data?.sync_mode!=='DIRECT_CONTENT'){await suppress();return;}
+   }
    if(!isAllowedTestDestination(String(delivery.channel),destination)){assertDb(await db.from('message_deliveries').update({status:'DRY_RUN',lease_until:null,suppression_reason:'TEST_DESTINATION_NOT_ALLOWLISTED'}).eq('id',id));return;}
    const variables=Object.fromEntries((version.data.parameter_schema.required||[]).map((key:string)=>[key,`TEST_${key}`]));
-   providerAttempted=true;const providerId=await sendProvider(version.data,artifact.data,destination,variables);
+   providerAttempted=true;const providerId=await sendProvider(version.data,artifact.data,destination,variables,fetch,authorization);
    await rpc('comm_accept_delivery',{p_id:id,p_provider_id:providerId,p_latency:Date.now()-started});return;
   }
+  if(emailSuppression){await suppress();return;}
   const customer=await db.from('customers').select('id,email,phone,name').eq('id',m.data.customer_id).single();assertDb(customer);
   if(!customer.data)throw new Error('CUSTOMER_MISSING');
   const version=await db.from('communication_template_versions').select('*').eq('id',delivery.template_version_id).single();assertDb(version);

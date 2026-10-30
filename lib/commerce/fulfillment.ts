@@ -1,6 +1,8 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { createShiprocketOrder, packedCart } from "./shiprocket/client";
 import type { NormalizedCartLine } from "./types";
+import {stagingShippingSimulation} from './shiprocket/simulationConfig';
+import {ensureSimulatedShipment} from './shiprocket/simulation';
 
 type OrderForShipment = {
   id: string;
@@ -11,6 +13,7 @@ type OrderForShipment = {
   address_snapshot: Record<string, unknown>;
   pricing_snapshot: {
     shipping?: {
+      simulated?: boolean;
       estimated_delivery_from?: string | null;
       estimated_delivery_to?: string | null;
     };
@@ -37,6 +40,7 @@ export function shipmentDatesFromPricingSnapshot(
 }
 
 export async function ensureShipmentForOrder(orderId: string): Promise<void> {
+  if(stagingShippingSimulation())return ensureSimulatedShipment(orderId);
   const existing = await supabaseAdmin
     .from("shipments")
     .select("id")
@@ -54,6 +58,8 @@ export async function ensureShipmentForOrder(orderId: string): Promise<void> {
     throw new Error(`Order lookup failed: ${orderResult.error?.message}`);
   }
   const order = orderResult.data as unknown as OrderForShipment;
+  // A simulation quote can never become a real shipment after a flag change.
+  if(order.pricing_snapshot.shipping?.simulated===true)throw new Error('SIMULATED_ORDER_REAL_FULFILLMENT_BLOCKED');
   const customerResult = await supabaseAdmin
     .from("customers")
     .select("name, email, phone")

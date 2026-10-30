@@ -3,6 +3,8 @@ import { sendWhatsAppTemplate, WhatsAppApiError } from "./client";
 import { getWhatsAppEnv } from "./env";
 import { supabaseAdmin } from "../supabaseAdmin";
 import { isAllowedTestDestination } from '../communications/preferences';
+import { connectWhatsAppWelcome } from '../communications/whatsappWelcome';
+import { stagingEmailSuppressionReason } from '../communications/stagingEmailSafety';
 
 function cleanPhone(phone: unknown) {
   return String(phone || "").replace(/\D/g, "");
@@ -44,6 +46,11 @@ export async function legacyWhatsAppWelcome(req: Request) {
 
   try {
     const body = await req.json();
+    if(stagingEmailSuppressionReason()!==null){
+      const result=typeof body.leadId==='string'&&/^[0-9a-f-]{36}$/i.test(body.leadId)
+        ? await connectWhatsAppWelcome(body.leadId) : {status:'skipped',welcomeState:'PERSISTED_LEAD_REQUIRED'};
+      return NextResponse.json({success:result?.status!=='failed',result:{...result,status:result?.status==='dry_run'?'DRY_RUN':result?.status}});
+    }
     phone = cleanPhone(body.phone);
     if(process.env.COMMUNICATION_DRY_RUN==='true'&&!isAllowedTestDestination('WHATSAPP',phone)){
       templateName=body.templateName||process.env.WHATSAPP_WELCOME_TEMPLATE||'hello_world';
@@ -85,6 +92,7 @@ export async function legacyWhatsAppWelcome(req: Request) {
 
     const { error: insertError } = await supabaseAdmin.from("whatsapp_messages").insert({
       phone,
+      ...(typeof body.leadId==='string'&&/^[0-9a-f-]{36}$/i.test(body.leadId)?{lead_id:body.leadId}:{}),
       template_name: templateName,
       template_language: templateLanguage,
       status: "sent",

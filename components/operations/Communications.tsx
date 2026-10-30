@@ -1,5 +1,5 @@
 "use client";
-import { useCallback,useEffect,useState } from 'react';
+import { useCallback,useEffect,useRef,useState } from 'react';
 import { Badge,Field,Table,api,date,styles } from './shared';
 import RuleEditor, { type RuleRow, type VersionRow } from './RuleEditor';
 import TemplateEditor from './TemplateEditor';
@@ -22,6 +22,17 @@ export default function Communications(){
  }catch(e){message((e as Error).message);}finally{setLoading(false);}},[tab]);
  useEffect(()=>{load();editRule(undefined);editTemplate(undefined);},[load]);
  async function mutate(operation:string,input:unknown){try{await api('/api/admin/communications',{operation,input});message('Saved.');await load();}catch(e){message((e as Error).message);}}
+ const [testBusy,setTestBusy]=useState(false);const testInFlight=useRef(false);const testRequest=useRef<{fingerprint:string;key:string}|null>(null);
+ async function queueTemplateTest(){
+  if(testInFlight.current||!testVersion)return;
+  testInFlight.current=true;setTestBusy(true);
+  try{
+   const fingerprint=JSON.stringify([testVersion,testDestination.trim().toLowerCase()]);
+   if(testRequest.current?.fingerprint!==fingerprint)testRequest.current={fingerprint,key:crypto.randomUUID()};
+   await api('/api/admin/communications',{operation:'TEST_TEMPLATE',input:{id:testVersion,destination:testDestination.trim(),request_key:testRequest.current.key}});
+   message('Test queued. Repeating this request will reuse the same delivery.');await load();
+  }catch(e){message((e as Error).message);}finally{testInFlight.current=false;setTestBusy(false);}
+ }
  const admin=role==='ADMIN';const templateName=(id:string)=>String(templates.find(t=>t.id===id)?.name||id.slice(0,8));
  const saveRuleStatus=(r:RuleRow,status:string)=>{const {id,version,next_run_at,last_status,last_completed_at,...draft}=r;const allowed={name:draft.name,description:draft.description||'',status,trigger_type:draft.trigger_type,trigger_event_type:draft.trigger_event_type,cron_expression:draft.cron_expression,timezone:draft.timezone,condition_config:draft.condition_config,action_config:draft.action_config,frequency_cap:draft.frequency_cap,quiet_hours:draft.quiet_hours,priority:draft.priority,valid_from:draft.valid_from,valid_until:draft.valid_until};return mutate('SAVE_RULE',{id,expected_version:version,rule:allowed});};
  return <section className={styles.shell}><h1>Communications</h1><p>Rules, canonical content and delivery operations.</p><div className={styles.tabs} role="tablist" aria-label="Communications sections">{tabs.map(t=><button key={t} role="tab" aria-selected={tab===t} onClick={()=>select(t)}>{t}</button>)}<button onClick={()=>load()} disabled={loading}>Refresh</button></div>
@@ -42,7 +53,7 @@ export default function Communications(){
    <form className={styles.panel} onSubmit={e=>{e.preventDefault();const f=new FormData(e.currentTarget);mutate('SAVE_PREFERENCE',{customer_id:f.get('customer_id'),channel:f.get('channel'),purpose:f.get('purpose'),allowed:f.get('allowed')==='true',evidence_reference:f.get('evidence_reference')});}}><h2>Record a communication preference</h2><p>Record existing consent or an opt-out with its evidence reference. This action does not collect consent from the customer.</p><div className={styles.grid}><Field label="Customer ID"><input name="customer_id" required placeholder="Customer UUID"/></Field><Field label="Channel"><select name="channel">{['EMAIL','WHATSAPP','SMS'].map(c=><option key={c}>{c}</option>)}</select></Field><Field label="Purpose"><select name="purpose"><option>MARKETING</option><option>TRANSACTIONAL</option></select></Field><Field label="Permission"><select name="allowed"><option value="false">Denied / opted out</option><option value="true">Allowed with recorded evidence</option></select></Field><Field label="Evidence reference"><input name="evidence_reference" required maxLength={500} placeholder="Consent receipt or support record"/></Field></div><button disabled={!admin}>Record preference</button></form>
    <form className={styles.panel} onSubmit={e=>{e.preventDefault();mutate('RECOVER_STATE',{source:new FormData(e.currentTarget).get('source')});}}><h2>Backfill feature state</h2><p>Processes the next 100 records using a durable cursor. Historical backfill updates projections without launching campaigns. Repeat until the source is complete.</p><Field label="Source"><select name="source">{['orders','subscriptions','payments','shipments'].map(s=><option key={s}>{s}</option>)}</select></Field><button disabled={!admin}>Queue next recovery batch</button></form>
   </>}
-  {tab==='Templates'&&<form className={styles.panel} onSubmit={e=>{e.preventDefault();mutate('TEST_TEMPLATE',{id:testVersion,destination:testDestination});}}><h2>Queue a template test</h2><div className={styles.grid}><Field label="Version"><select required value={testVersion||''} onChange={e=>setTestVersion(e.target.value)}><option value="">Choose a version</option>{versions.map(v=><option key={v.id} value={v.id}>{templateName(v.template_id)} · {v.channel} · v{v.version}</option>)}</select></Field><Field label="Test email or phone"><input required value={testDestination} onChange={e=>setTestDestination(e.target.value)}/></Field></div><p>Only configured test allowlists may receive this send. Other destinations are recorded as DRY RUN.</p><button disabled={!admin}>Queue test</button></form>}
+  {tab==='Templates'&&<form className={styles.panel} onSubmit={e=>{e.preventDefault();void queueTemplateTest();}}><h2>Queue a template test</h2><div className={styles.grid}><Field label="Version"><select required disabled={testBusy} value={testVersion||''} onChange={e=>setTestVersion(e.target.value)}><option value="">Choose a version</option>{versions.map(v=><option key={v.id} value={v.id}>{templateName(v.template_id)} · {v.channel} · v{v.version}</option>)}</select></Field><Field label="Test email or phone"><input required disabled={testBusy} value={testDestination} onChange={e=>setTestDestination(e.target.value)}/></Field></div><p>Staging email tests stay off unless an approved inbox and dedicated test template are enabled for a short test window. Normal automation emails remain blocked.</p><button disabled={!admin||testBusy}>{testBusy?'Queueing…':'Queue test'}</button></form>}
   {cursor&&!['Overview','Providers','Templates'].includes(tab)&&<button onClick={()=>load(cursor)}>Next 100 records</button>}
  </section>;
 }

@@ -1,5 +1,14 @@
 import { getShiprocketEnv } from "../env";
 import type { NormalizedCartLine } from "../types";
+import {CommerceError} from '../http';
+import {shippingSimulationSelected,simulatedServiceability} from './simulationConfig';
+
+function assertShiprocketRequestsAllowed():void {
+  const flag=process.env.SHIPROCKET_API_ENABLED?.trim().toLowerCase();
+  if(shippingSimulationSelected()||flag==='false'||(process.env.VERCEL_ENV==='preview'&&flag!=='true')){
+    throw new CommerceError('SHIPPING_UNAVAILABLE','Shipping is temporarily unavailable.',503);
+  }
+}
 
 type ShiprocketCourier = {
   courier_company_id?: number;
@@ -13,6 +22,7 @@ type ShiprocketCourier = {
 let cachedToken: { value: string; expiresAt: number } | null = null;
 
 async function shiprocketToken(): Promise<string> {
+  assertShiprocketRequestsAllowed();
   const env = getShiprocketEnv();
   if (env.token) return env.token;
   if (cachedToken && cachedToken.expiresAt > Date.now()) return cachedToken.value;
@@ -32,8 +42,10 @@ async function shiprocketToken(): Promise<string> {
 }
 
 async function shiprocketRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  assertShiprocketRequestsAllowed();
   const env = getShiprocketEnv();
   const token = await shiprocketToken();
+  assertShiprocketRequestsAllowed();
   const response = await fetch(`${env.apiBaseUrl}${path}`, {
     ...init,
     headers: {
@@ -66,6 +78,8 @@ export async function getShiprocketServiceability(input: {
   items: NormalizedCartLine[];
   declaredValuePaise: number;
 }) {
+  if(shippingSimulationSelected())return simulatedServiceability(input.postalCode);
+  assertShiprocketRequestsAllowed();
   const env = getShiprocketEnv();
   const packed = packedCart(input.items);
   const params = new URLSearchParams({
@@ -144,6 +158,7 @@ export function buildShiprocketOrderPayload(input: ShiprocketOrderInput) {
 }
 
 export async function createShiprocketOrder(input: ShiprocketOrderInput) {
+  assertShiprocketRequestsAllowed();
   return shiprocketRequest<{
     order_id?: number;
     shipment_id?: number;
@@ -155,6 +170,7 @@ export async function createShiprocketOrder(input: ShiprocketOrderInput) {
 }
 
 export async function fetchShiprocketTracking(awb: string) {
+  if(awb.startsWith('sim_'))throw new CommerceError('SHIPPING_UNAVAILABLE','Simulated shipments have no carrier tracking.',409);
   return shiprocketRequest<unknown>(`/courier/track/awb/${encodeURIComponent(awb)}`, {
     method: "GET",
   });

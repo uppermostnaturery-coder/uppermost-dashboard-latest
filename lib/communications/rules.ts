@@ -3,11 +3,13 @@ import { parseCondition } from "./dsl";
 import { nextRuns } from "./schedule";
 import { db,rpc,assertDb } from "./store";
 import { publishOutbox } from "./transport";
+import {stagingEmailSuppressionReason} from './stagingEmailSafety';
+import {dispatchWhatsAppWorkflows,isManagedWhatsAppRule,stagingWhatsAppWorkflowsEnabled} from './whatsappWorkflows';
 export const ruleSchema = z.object({
  name:z.string().min(1).max(160),description:z.string().max(1000).default(''),status:z.enum(['DRAFT','ACTIVE','PAUSED','ARCHIVED']).default('DRAFT'),
- trigger_type:z.enum(['EVENT','SCHEDULE','MANUAL']),trigger_event_type:z.enum(['customer.message.created','commerce.order.confirmed','commerce.payment.changed','commerce.subscription.changed','commerce.shipment.changed']).nullable().optional(),
+ trigger_type:z.enum(['EVENT','SCHEDULE','MANUAL']),trigger_event_type:z.enum(['lead.completed','lead.whatsapp.completed','customer.message.created','commerce.order.confirmed','commerce.payment.changed','commerce.subscription.changed','commerce.shipment.changed']).nullable().optional(),
  cron_expression:z.string().max(100).nullable().optional(),timezone:z.string().max(64).default('Asia/Kolkata'),condition_config:z.unknown().transform(parseCondition),
- action_config:z.object({templates:z.record(z.enum(['EMAIL','WHATSAPP','SMS','LEMLIST']),z.uuid()).refine((v)=>Object.keys(v).length>0),variables:z.record(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/),z.union([z.string().max(2048),z.number(),z.boolean()])).default({}),abandoned_cart:z.boolean().default(false),offer_id:z.uuid().optional()}).strict(),
+ action_config:z.object({templates:z.partialRecord(z.enum(['EMAIL','WHATSAPP','SMS','LEMLIST']),z.uuid()).refine((v)=>Object.keys(v).length>0),variables:z.record(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/),z.union([z.string().max(2048),z.number(),z.boolean()])).default({}),abandoned_cart:z.boolean().default(false),offer_id:z.uuid().optional()}).strict(),
  priority:z.number().int().min(-100).max(100).default(0),frequency_cap:z.object({weekly:z.number().int().min(1).max(10).default(3),cooldown_hours:z.number().int().min(1).max(168).default(24)}).default({weekly:3,cooldown_hours:24}),
  quiet_hours:z.object({start:z.number().int().min(0).max(23).default(21),end:z.number().int().min(0).max(23).default(9)}).default({start:21,end:9}),
  valid_from:z.iso.datetime().nullable().optional(),valid_until:z.iso.datetime().nullable().optional(),
@@ -17,10 +19,13 @@ export const ruleSchema = z.object({
  if(v.valid_from&&v.valid_until&&v.valid_until<=v.valid_from)c.addIssue({code:'custom',message:'Invalid validity range'});
 });
 export async function dispatchCommunications() {
+ await dispatchWhatsAppWorkflows();
+ if(stagingEmailSuppressionReason()==='STAGING_EMAIL_DRY_RUN')await rpc('comm_dispatch_whatsapp_welcomes',{p_limit:50,p_dry:true});
  const now=new Date();
- const result=await db.from('communication_rules').select('id,version,next_run_at,cron_expression,timezone').eq('status','ACTIVE').eq('trigger_type','SCHEDULE').lte('next_run_at',now.toISOString()).order('next_run_at').limit(20);assertDb(result);
+ const result=await db.from('communication_rules').select('id,version,name,next_run_at,cron_expression,timezone').eq('status','ACTIVE').eq('trigger_type','SCHEDULE').lte('next_run_at',now.toISOString()).order('next_run_at').limit(20);assertDb(result);
  let runs=0;
  for(const rule of result.data||[]){
+  if(stagingWhatsAppWorkflowsEnabled()&&isManagedWhatsAppRule(rule.name))continue;
   const next=nextRuns(rule.cron_expression,rule.timezone,now,1)[0];
   const id=await rpc('comm_start_run',{p_rule_id:rule.id,p_expected_next:rule.next_run_at,p_next:next,p_key:`schedule:${rule.id}:${rule.version}:${rule.next_run_at}`,p_dry:process.env.COMMUNICATION_DRY_RUN!=='false'});if(id)runs++;
  }

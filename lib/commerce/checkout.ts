@@ -15,6 +15,7 @@ import { publicQuoteShape } from "./apiShape";
 import { createRazorpayCustomer, createRazorpayOrder } from "./razorpay/client";
 import type { CartLineInput, CartQuote } from "./types";
 import { bestEffortIdentityLink, type AnalyticsContext } from "../analytics/identity";
+import {simulationQuoteMismatch} from './shiprocket/simulationConfig';
 
 type PrepareInput = {
   guest_session_id: string;
@@ -150,7 +151,8 @@ export async function prepareCheckout(input: PrepareInput, idempotencyKey: strin
       409
     );
   }
-  if (quotePricingFingerprint(stored.price_snapshot) !== quotePricingFingerprint(current.snapshot)) {
+  if (simulationQuoteMismatch(stored.price_snapshot.shipping,current.snapshot.shipping)
+      ||quotePricingFingerprint(stored.price_snapshot) !== quotePricingFingerprint(current.snapshot)) {
     const replacement = await persistQuote({
       guestSessionId: input.guest_session_id,
       items,

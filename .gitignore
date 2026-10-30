@@ -9,3 +9,12 @@ tsconfig.tsbuildinfo
 .env*
 !.env.local.example
 supabase/.temp/
+
+# Local database backups and schema snapshots
+supabase/backups/
+supabase/production_private_schema.sql
+supabase/production_public_schema.sql
+supabase/staging_public_schema.sql
+
+# Generated review copies; commit source files instead
+docs/diffs/*.patch

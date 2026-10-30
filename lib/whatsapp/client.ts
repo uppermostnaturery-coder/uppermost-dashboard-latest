@@ -1,4 +1,5 @@
 import { getWhatsAppEnv } from "./env";
+import {communicationSendSuppressionReason} from '../communications/sendSafety';
 
 export class WhatsAppApiError extends Error {
   status: number;
@@ -21,6 +22,8 @@ export async function sendWhatsAppTemplate({
   templateName: string;
   language: string;
 }) {
+  const suppression=communicationSendSuppressionReason();
+  if(suppression)throw new Error(suppression);
   const env = getWhatsAppEnv();
 
   const payload = {

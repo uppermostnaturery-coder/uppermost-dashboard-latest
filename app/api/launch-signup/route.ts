@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { connectWhatsAppWelcome } from '@/lib/communications/whatsappWelcome';
+import { stagingEmailSuppressionReason } from "@/lib/communications/stagingEmailSafety";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { brevoFetch } from "../../../lib/brevo/client";
 import { getBrevoServerEnv } from "../../../lib/brevo/env";
@@ -209,6 +211,7 @@ async function saveLaunchLead(args: {
       .update({
         phone: resolvedPhone,
         consent_email: args.emailConsent,
+        consent_whatsapp: args.whatsappConsent,
         consent_recorded_at: args.now,
         lead_stage: "launch_waitlist",
         landing_page: args.landingPage,
@@ -237,6 +240,7 @@ async function saveLaunchLead(args: {
       email: args.email,
       phone: resolvedPhone,
       consent_email: args.emailConsent,
+      consent_whatsapp: args.whatsappConsent,
       consent_recorded_at: args.now,
       lead_stage: "launch_waitlist",
       landing_page: args.landingPage,
@@ -325,6 +329,7 @@ async function syncLaunchContactToBrevo(args: {
   source: string;
   landingPage: string | null;
 }) {
+  if (stagingEmailSuppressionReason()) return { status: "dry_run" as const, listId: null };
   const { BREVO_MARKETING_LIST_ID } = getBrevoServerEnv();
   const listId = Number(BREVO_MARKETING_LIST_ID);
 
@@ -366,6 +371,7 @@ async function syncLaunchContactToBrevo(args: {
 }
 
 async function sendWelcomeEmail(email: string): Promise<boolean> {
+  if (stagingEmailSuppressionReason()) return false;
   const { BREVO_WELCOME_TEMPLATE_ID } = getBrevoServerEnv();
 
   if (!BREVO_WELCOME_TEMPLATE_ID) return false;
@@ -428,13 +434,6 @@ export async function POST(request: Request) {
 
     const phone = normalizePhone(body.phone ?? body.mobile);
 
-    console.log("Launch signup request debug:", {
-      email,
-      rawPhone: body.phone,
-      rawMobile: body.mobile,
-      normalizedPhone: phone,
-    });
-
     const emailConsent = normalizeConsent(body.emailConsent ?? body.consent);
 
     if (!emailConsent) {
@@ -443,7 +442,7 @@ export async function POST(request: Request) {
 
     const whatsappConsent = normalizeOptionalConsent(
       body.whatsappConsent ?? body.consentWhatsApp ?? body.WhatsAppConsent,
-      Boolean(phone && emailConsent)
+      false
     );
 
     const now = new Date().toISOString();
@@ -472,6 +471,8 @@ export async function POST(request: Request) {
       consentText,
     });
 
+    const whatsappConsentProvided = (body.whatsappConsent ?? body.consentWhatsApp ?? body.WhatsAppConsent) !== undefined;
+    const whatsappWelcome = whatsappConsentProvided ? await connectWhatsAppWelcome(lead.id) : null;
     const brevo = await syncLaunchContactToBrevo({
       email,
       phone: lead.phone ?? phone,
@@ -494,9 +495,10 @@ export async function POST(request: Request) {
         created,
         leadSaved: true,
         consentSaved: consentRecord.saved,
-        brevoSynced: true,
+        brevoSynced: brevo.status === "synced",
         emailSent,
         integrations: {
+          ...(whatsappWelcome ? {whatsappWelcome} : {}),
           consent: consentRecord,
           brevo,
         },

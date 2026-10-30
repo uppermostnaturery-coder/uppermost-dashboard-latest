@@ -4,6 +4,8 @@ import { getShiprocketEnv } from "@/lib/commerce/env";
 import { commerceJson, errorResponse } from "@/lib/commerce/http";
 import { createCustomerMessage } from "@/lib/commerce/messages";
 import type { CustomerMessageKey } from "@/lib/commerce/types";
+import {stagingWhatsAppWorkflowsEnabled} from '@/lib/communications/whatsappWorkflows';
+import {shippingSimulationSelected,stagingShippingSimulation} from '@/lib/commerce/shiprocket/simulationConfig';
 
 export const runtime = "nodejs";
 
@@ -24,8 +26,21 @@ export async function POST(request: Request) {
     if (!safeEqual(supplied, getShiprocketEnv().webhookSecret)) {
       return commerceJson({ ok: false, error: { code: "INVALID_WEBHOOK_SECRET", message: "Invalid secret." } }, 401, null);
     }
+    if(shippingSimulationSelected()){
+      stagingShippingSimulation(); // mismatch fails closed before body/RPC access
+      return commerceJson({ok:false,error:{code:'SIMULATION_REAL_WEBHOOK_BLOCKED',message:'Carrier callbacks are disabled during staging simulation.'}},409,null);
+    }
     const raw = await request.text();
     const payload = JSON.parse(raw) as Record<string, any>;
+    if(stagingWhatsAppWorkflowsEnabled()){
+      const {data,error}=await supabaseAdmin.rpc('comm_ingest_shipment_event',{p_payload:{
+        ...payload,awb:payload.awb??payload.awb_code,shipment_id:payload.shipment_id??payload.sr_shipment_id,
+        current_status:payload.current_status??payload.status,
+        event_id:String(payload.event_id??payload.id??requestHash(raw)),event_time:payload.event_time??payload.updated_at,
+      }});
+      if(error)throw new Error('SHIPMENT_EVENT_PERSISTENCE_FAILED');
+      return commerceJson({ok:true,...data},200,null);
+    }
     const awb = String(payload.awb ?? payload.awb_code ?? "");
     const providerShipmentId = String(payload.shipment_id ?? payload.sr_shipment_id ?? "");
     const shipmentResult = await supabaseAdmin.from("shipments")

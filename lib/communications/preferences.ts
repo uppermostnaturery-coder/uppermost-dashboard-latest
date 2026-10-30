@@ -1,6 +1,8 @@
 import { db,rpc,assertDb } from './store';
+import {isCommunicationDryRun} from './sendSafety';
 export function quietHour(hour:number,start:number,end:number){return start===end?false:start<end?hour>=start&&hour<end:hour>=start||hour<end;}
 export function isAllowedTestDestination(channel:string,destination:string){
+ if(isCommunicationDryRun())return false;
  const source=channel==='EMAIL'||channel==='LEMLIST'?process.env.COMMUNICATION_ALLOWED_TEST_EMAILS:process.env.COMMUNICATION_ALLOWED_TEST_PHONES;
  const normalize=(v:string)=>channel==='EMAIL'||channel==='LEMLIST'?v.trim().toLowerCase():v.replace(/\D/g,'');
  return (source||'').split(',').filter(Boolean).map(normalize).includes(normalize(destination));
@@ -11,6 +13,7 @@ export async function deliveryPermission(args:{deliveryId:string;customerId:stri
  const preferences=await db.from('communication_preferences').select('allowed').eq('customer_id',args.customerId).eq('channel',channel).eq('purpose',purpose).maybeSingle();assertDb(preferences);
  if(preferences.data?.allowed===false||(purpose==='MARKETING'&&!preferences.data?.allowed))return 'CONSENT_REQUIRED';
  if(purpose!=='MARKETING')return null;
+ if(channel==='WHATSAPP'&&!await rpc<boolean>('comm_whatsapp_marketing_allowed',{p_customer_id:args.customerId}))return 'CONSENT_REQUIRED';
  const feature=await db.from('communication_customer_features').select('cart_converted,last_cart_activity_at,last_order_at').eq('customer_id',args.customerId).maybeSingle();assertDb(feature);
  if(args.abandoned&&(!feature.data||feature.data.cart_converted||!feature.data.last_cart_activity_at||Date.parse(feature.data.last_cart_activity_at)<=Date.parse(feature.data.last_order_at||'1970-01-01')))return 'CART_CONVERTED_OR_EMPTY';
  if(args.abandoned){const pending=await db.from('integration_outbox').select('id').eq('customer_id',args.customerId).eq('event_type','commerce.order.confirmed').neq('status','completed').limit(1);assertDb(pending);if(pending.data?.length)return 'PURCHASE_PROJECTION_PENDING';}

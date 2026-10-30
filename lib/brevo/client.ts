@@ -1,4 +1,5 @@
 import { getBrevoServerEnv } from "./env";
+import {communicationSendSuppressionReason} from '../communications/sendSafety';
 
 type BrevoRequestBody = BodyInit | Record<string, unknown> | null | undefined;
 
@@ -17,6 +18,8 @@ function isBodyInit(value: BrevoRequestBody): value is BodyInit {
 }
 
 export async function brevoFetch(path: string, init: BrevoRequestInit = {}) {
+  const suppression=communicationSendSuppressionReason();
+  if(suppression&&!['GET','HEAD'].includes((init.method||'GET').toUpperCase()))throw new Error(suppression);
   const { BREVO_API_KEY, BREVO_API_BASE_URL } = getBrevoServerEnv();
 
   if (!BREVO_API_KEY) {

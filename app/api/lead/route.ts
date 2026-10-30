@@ -1,5 +1,8 @@
 import { legacyWhatsAppWelcome } from "@/lib/whatsapp/legacy";
+import { connectWhatsAppWelcome } from '@/lib/communications/whatsappWelcome';
 import { isAllowedTestDestination } from '@/lib/communications/preferences';
+import { stagingEmailSuppressionReason } from '@/lib/communications/stagingEmailSafety';
+import { connectSignupWelcome } from '@/lib/communications/welcomeBridge';
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { upsertBrevoContact } from "../../../lib/brevo/contacts";
@@ -1473,7 +1476,7 @@ async function syncLeadToLemlist(
   const effectiveConsent = input.marketingConsent.provided
     ? input.marketingConsent.value
     : previousLead?.consent_email === true;
-  if(effectiveConsent&&process.env.COMMUNICATION_DRY_RUN==='true'&&!isAllowedTestDestination('LEMLIST',input.email))return {status:'dry_run',campaignId:null,previousCampaignId:null,message:'DRY_RUN: Lemlist enrollment suppressed.'};
+  if(effectiveConsent&&(stagingEmailSuppressionReason()||(process.env.COMMUNICATION_DRY_RUN==='true'&&!isAllowedTestDestination('LEMLIST',input.email))))return {status:'dry_run',campaignId:null,previousCampaignId:null,message:'DRY_RUN: Lemlist enrollment suppressed.'};
 
   if (!process.env.LEMLIST_API_KEY) {
     return {
@@ -1695,7 +1698,7 @@ async function syncLeadToBrevo(
     humanFollowupRequired?: boolean | null;
   }
 ): Promise<BrevoSyncResult> {
-  if(process.env.COMMUNICATION_DRY_RUN==='true'&&!isAllowedTestDestination('EMAIL',input.email))return {status:'dry_run',listId:null,message:'DRY_RUN: Brevo contact automation suppressed.'};
+  if(stagingEmailSuppressionReason()||(process.env.COMMUNICATION_DRY_RUN==='true'&&!isAllowedTestDestination('EMAIL',input.email)))return {status:'dry_run',listId:null,message:'DRY_RUN: Brevo contact automation suppressed.'};
   try {
     const { BREVO_MARKETING_LIST_ID } = getBrevoServerEnv();
     const listId = Number(BREVO_MARKETING_LIST_ID);
@@ -1792,7 +1795,7 @@ async function sendBrevoWelcomeEmail(
     marketingConsent: boolean;
   }
 ): Promise<BrevoWelcomeEmailResult> {
-  if(process.env.COMMUNICATION_DRY_RUN==='true'&&!isAllowedTestDestination('EMAIL',input.email))return {status:'dry_run',message:'DRY_RUN: Welcome email suppressed.'};
+  if(stagingEmailSuppressionReason()||(process.env.COMMUNICATION_DRY_RUN==='true'&&!isAllowedTestDestination('EMAIL',input.email)))return {status:'dry_run',message:'DRY_RUN: Welcome email suppressed.'};
   try {
     if (input.stage !== "completed") {
       return {
@@ -2103,19 +2106,22 @@ export async function POST(request: Request) {
       warnings.push(brevo.message);
     }
 
-    const welcomeEmail = await sendBrevoWelcomeEmail(input, {
+    const welcomeConnection = await connectSignupWelcome(lead.id, input.stage);
+    const welcomeEmail = welcomeConnection ?? await sendBrevoWelcomeEmail(input, {
       id: lead.id,
       firstName: lead.firstName ?? null,
       marketingConsent: Boolean(lead.marketingConsent),
     });
 
     if (
-      welcomeEmail.status === "failed" &&
-      welcomeEmail.message
+      (welcomeEmail.status === "failed" || welcomeConnection?.bridgeStatus === "failed" || welcomeConnection?.bridgeStatus === "configuration_invalid") &&
+      "message" in welcomeEmail && welcomeEmail.message
     ) {
       warnings.push(welcomeEmail.message);
     }
-    const whatsappWelcome =
+    const stagedWhatsApp = input.stage === 'completed' && input.consentWhatsApp.provided
+      ? await connectWhatsAppWelcome(lead.id) : null;
+    const whatsappWelcome = stagedWhatsApp ?? (
       input.stage === "completed" &&
       Boolean(lead.phone ?? input.phone) &&
       input.consentWhatsApp.value === true
@@ -2145,7 +2151,7 @@ export async function POST(request: Request) {
               }
 
               return {
-                status: "sent",
+                status: data?.result?.status === 'DRY_RUN' ? 'dry_run' : 'sent',
                 metaMessageId: data?.metaMessageId ?? null,
                 response: data,
               };
@@ -2165,7 +2171,7 @@ export async function POST(request: Request) {
                 : !Boolean(lead.phone ?? input.phone)
                   ? "WhatsApp skipped because phone is missing."
                   : "WhatsApp skipped because consent is false.",
-          };
+          });
 
     if (
       whatsappWelcome.status === "failed" &&

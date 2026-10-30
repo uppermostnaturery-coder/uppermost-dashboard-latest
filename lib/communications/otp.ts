@@ -5,6 +5,7 @@ import { publishOutbox } from './transport';
 import { sendProvider } from './providers/send';
 import { isAllowedTestDestination } from './preferences';
 import { ProviderError } from './providers/http';
+import {communicationSendSuppressionReason} from './sendSafety';
 export async function createOtp(phone:string|null,email:string|null,ip:string){
  const id=randomUUID();const otp=generateOtp();const digest=(v:string)=>createHmac('sha256',process.env.OTP_ENCRYPTION_KEY!).update(v).digest('hex');
  await rpc('comm_create_otp',{p_id:id,p_phone:phone,p_email:email,p_hash:hashOtp(id,otp),p_encrypted:encryptOtp(id,otp),p_ip_key:digest(ip),p_identity_key:digest(phone||email!),p_ttl:Math.min(600,Math.max(60,Number(process.env.OTP_TTL_SECONDS)||300))});
@@ -21,6 +22,7 @@ export async function deliverOtp(id:string){
  const destination=String(channel==='EMAIL'?c.email||'':c.phone||'');
  let attempted=false;
  try{
+  if(communicationSendSuppressionReason()){await rpc('comm_finish_otp',{p_id:id,p_success:true,p_state:'DRY_RUN'});return;}
   if(!destination)throw new Error('DESTINATION_UNAVAILABLE');
   if(process.env.COMMUNICATION_DRY_RUN!=='false'&&!isAllowedTestDestination(channel,destination)){await rpc('comm_finish_otp',{p_id:id,p_success:true,p_state:'DRY_RUN'});return;}
   const versionId=process.env[`OTP_${channel}_TEMPLATE_VERSION`];if(!versionId)throw new Error('OTP_TEMPLATE_UNCONFIGURED');

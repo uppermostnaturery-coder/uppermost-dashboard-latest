@@ -14,6 +14,8 @@ beforeAll(async () => {
     alter table analytics_sessions add country text,add city text,add region text,add ip_timezone text,add referrer text,add utm_source text,add utm_medium text,add utm_campaign text,add source text,add medium text,add campaign text;
     alter table analytics_events add device_type text,add time_zone text,add country text,add city text,add region text,add ip_timezone text;`);
   await db.exec("create table whatsapp_messages(id uuid primary key default gen_random_uuid(),status text check(status in ('queued','sent','delivered','read','failed')));");
+  // Legacy lead capture is deployed independently of the commerce migration history.
+  await db.exec("create table public.um_leads(id uuid primary key default gen_random_uuid(),first_name text,last_name text,email text not null,phone text,status text default 'new',consent_email boolean not null default false,consent_whatsapp boolean not null default false,consent_recorded_at timestamptz,metadata jsonb not null default '{}');");
   for (const file of readdirSync("supabase/migrations").filter((v) => v.endsWith(".sql")).sort()) {
     const sql = readFileSync(join("supabase/migrations", file), "utf8").replace(/create extension if not exists pgcrypto;/gi, "");
     try { await db.exec(sql); } catch (e) { throw new Error(`Migration ${file}: ${e instanceof Error ? e.message : e}`); }
@@ -183,4 +185,73 @@ describe("durable SQL boundaries", () => {
     await db.exec('set role authenticated');
     try{expect((await db.query('select * from analytics_events limit 1')).rows).toHaveLength(0);}finally{await db.exec('reset role');}
   });
+});
+
+describe('template test idempotency',()=>{
+ it('returns one delivery for a repeated actor/request and rejects changed payloads',async()=>{
+  const actor='27000000-0000-4000-8000-000000000001',key='28000000-0000-4000-8000-000000000001';
+  await db.query('insert into auth.users(id) values($1)',[actor]);
+  await db.query("insert into admin_memberships(user_id,role,active) values($1,'ADMIN',true)",[actor]);
+  const t=await db.query<{id:string}>("insert into communication_templates(logical_key,name,purpose) values('IDEMPOTENCY_TEST','Test','TRANSACTIONAL') returning id");
+  const v=await db.query<{id:string}>("insert into communication_template_versions(template_id,version,status,channel,category,subject,html_content,parameter_schema) values($1,1,'DRAFT','EMAIL','TRANSACTIONAL','Test','<p>Test</p>','{\"required\":[]}') returning id",[t.rows[0].id]);
+  const args=[v.rows[0].id,'test@example.test',key,actor,null];
+  const first=await db.query<{id:string}>('select comm_queue_template_test_once($1,$2,$3,$4,$5) as id',args);
+  expect((await db.query('select comm_queue_template_test_once($1,$2,$3,$4,$5) as id',args)).rows).toEqual(first.rows);
+  expect((await db.query("select id from integration_outbox where aggregate_id=$1",[first.rows[0].id])).rows).toHaveLength(1);
+  await expect(db.query('select comm_queue_template_test_once($1,$2,$3,$4,$5)',[args[0],'other@example.test',key,actor,null])).rejects.toThrow('TEST_REQUEST_CONFLICT');
+  expect((await db.query("select m.metadata->>'test_actor_id' as actor,m.metadata->>'test_request_key' as request from customer_messages m join message_deliveries d on d.customer_message_id=m.id where d.id=$1",[first.rows[0].id])).rows).toEqual([{actor,request:key}]);
+ });
+ it('is not executable by anonymous or ordinary authenticated clients',async()=>{
+  expect((await db.query("select has_function_privilege('anon','public.comm_queue_template_test_once(uuid,text,uuid,uuid,text)','EXECUTE') as allowed")).rows).toEqual([{allowed:false}]);
+  expect((await db.query("select has_function_privilege('authenticated','public.comm_queue_template_test_once(uuid,text,uuid,uuid,text)','EXECUTE') as allowed")).rows).toEqual([{allowed:false}]);
+ });
+});
+
+describe("automation timing projection", () => {
+  it("retains checkout time separately from cart time and compiles one-hour predicates", async () => {
+    const c = "99000000-0000-4000-8000-000000000001";
+    await db.query("insert into customers(id,name,normalized_email) values($1,'Timing','timing@example.test')", [c]);
+    await db.query("insert into communication_behavior_features(visitor_id,customer_id,recent_add_to_cart_at,last_checkout_started_at) values('timing-visitor',$1,now()-interval '3 hours',now()-interval '30 minutes')", [c]);
+    expect((await db.query("select customer_id from comm_audience($1,null,500,$2)", [JSON.stringify({field:"last_checkout_started_at",op:"hours_since_gte",value:1}),c])).rows).toHaveLength(0);
+    await db.query("update communication_customer_features set last_checkout_started_at=now()-interval '1 hour',last_shipment_at=now()-interval '1 day' where customer_id=$1",[c]);
+    expect((await db.query("select customer_id from comm_audience($1,null,500,$2)", [JSON.stringify({all:[{field:"last_checkout_started_at",op:"hours_since_gte",value:1},{field:"last_shipment_at",op:"days_since_gte",value:1}]}),c])).rows).toHaveLength(1);
+    expect((await db.query("select customer_id from comm_audience($1,null,500,$2)", [JSON.stringify({field:"last_checkout_started_at",op:"hours_since_lte",value:0}),c])).rows).toHaveLength(0);
+  });
+});
+
+describe('confirmed provider acceptance',()=>{
+ async function fixture(status='SENDING',reason:string|null=null){
+  const m=await db.query<{id:string}>("insert into customer_messages(customer_id,message_key,title,body,severity,metadata) values(null,'ACCEPTANCE_FIX','Acceptance','Acceptance','INFO','{\"communication_engine\":true}') returning id");
+  return (await db.query<{id:string}>("insert into message_deliveries(customer_message_id,channel,provider,status,attempt_number,suppression_reason) values($1,'EMAIL','BREVO',$2,1,$3) returning id",[m.rows[0].id,status,reason])).rows[0].id;
+ }
+ it('rejects missing delivery instead of silent success',async()=>{
+  await expect(db.query("select comm_accept_delivery('ff000000-0000-4000-8000-000000000001','provider-missing',1)")).rejects.toThrow('DELIVERY_NOT_FOUND');
+ });
+ it.each([null,'','   '])('rejects invalid provider ID %s',async providerId=>{
+  const id=await fixture();await expect(db.query('select comm_accept_delivery($1,$2,1)',[id,providerId])).rejects.toThrow('INVALID_PROVIDER_MESSAGE_ID');
+  expect((await db.query('select status,provider_message_id from message_deliveries where id=$1',[id])).rows).toEqual([{status:'SENDING',provider_message_id:null}]);
+ });
+ it('rejects a non-sendable row instead of silent success',async()=>{
+  const id=await fixture('DRY_RUN');await expect(db.query("select comm_accept_delivery($1,'provider-dry',1)",[id])).rejects.toThrow('DELIVERY_ACCEPTANCE_STATE_CONFLICT');
+ });
+ it('preserves accepted ID, timestamp and advanced callback state on identical replay',async()=>{
+  const id=await fixture();await db.query("select comm_accept_delivery($1,'provider-stable',7)",[id]);
+  const first=(await db.query<{provider_message_id:string;sent_at:string;latency_ms:number}>('select provider_message_id,sent_at,latency_ms from message_deliveries where id=$1',[id])).rows[0];
+  expect(first).toMatchObject({provider_message_id:'provider-stable',latency_ms:7});expect(first.sent_at).not.toBeNull();
+  await db.query("select comm_provider_event('BREVO','stable-delivered','provider-stable','DELIVERED',now())");
+  await db.query("select comm_accept_delivery($1,'provider-stable',99)",[id]);
+  expect((await db.query('select provider_message_id,sent_at,latency_ms from message_deliveries where id=$1',[id])).rows[0]).toEqual(first);
+  expect((await db.query('select status from message_deliveries where id=$1',[id])).rows[0]).toEqual({status:'DELIVERED'});
+  await expect(db.query("select comm_accept_delivery($1,'provider-conflict',1)",[id])).rejects.toThrow('DELIVERY_PROVIDER_ID_CONFLICT');
+ });
+ it('persists late known acceptance after expired reservation without resending',async()=>{
+  const id=await fixture('RECONCILIATION_PENDING','EXPIRED_SEND_RESERVATION');
+  await db.query("select comm_provider_event('BREVO','late-early','provider-late','DELIVERED',now())");
+  await db.query("select comm_accept_delivery($1,'provider-late',9)",[id]);
+  expect((await db.query('select status,provider_message_id,suppression_reason,lease_until from message_deliveries where id=$1',[id])).rows[0]).toEqual({status:'DELIVERED',provider_message_id:'provider-late',suppression_reason:null,lease_until:null});
+ });
+ it.each([null,'AMBIGUOUS_TRANSPORT'])('does not accept unrelated reconciliation states: %s',async(reason)=>{
+  const id=await fixture('RECONCILIATION_PENDING',reason);
+  await expect(db.query("select comm_accept_delivery($1,'provider-unknown',1)",[id])).rejects.toThrow('DELIVERY_ACCEPTANCE_STATE_CONFLICT');
+ });
 });
