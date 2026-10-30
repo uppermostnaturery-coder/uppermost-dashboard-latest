@@ -7,11 +7,11 @@
           "Parallel Aware": false,
           "Async Capable": false,
           "Startup Cost": 0.42,
-          "Total Cost": 706.28,
+          "Total Cost": 706.31,
           "Plan Rows": 500,
           "Plan Width": 16,
-          "Actual Startup Time": 0.101,
-          "Actual Total Time": 2.861,
+          "Actual Startup Time": 0.111,
+          "Actual Total Time": 2.915,
           "Actual Rows": 500,
           "Actual Loops": 1,
           "Disabled": false,
@@ -36,11 +36,11 @@
               "Relation Name": "communication_customer_features",
               "Alias": "communication_customer_features",
               "Startup Cost": 0.42,
-              "Total Cost": 45882.63,
+              "Total Cost": 45884.39,
               "Plan Rows": 32501,
               "Plan Width": 16,
-              "Actual Startup Time": 0.094,
-              "Actual Total Time": 2.271,
+              "Actual Startup Time": 0.102,
+              "Actual Total Time": 2.298,
               "Actual Rows": 500,
               "Actual Loops": 1,
               "Disabled": false,
@@ -74,9 +74,9 @@
           "Temp Read Blocks": 0,
           "Temp Written Blocks": 0
         },
-        "Planning Time": 0.227,
+        "Planning Time": 0.254,
         "Triggers": [],
-        "Execution Time": 3.462
+        "Execution Time": 3.532
       }
     ]
   }
