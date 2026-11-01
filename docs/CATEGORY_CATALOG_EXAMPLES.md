@@ -41,3 +41,11 @@ The static page chrome (logo, navigation, heading, background/effects and footer
 All amounts are integer paise: `750000` means ₹7,500. Unavailable variants have `sellable: false` and `max_cart_quantity: 0`. New products in these review fixtures are inactive. The fixture prices and counts do not establish production database contents. The insert-only migration still needs real fulfilment measurements, unapproved prices/sizes and intentional activation before use.
 
 For field definitions and compatibility rules see [FRAMER_COMMERCE_CONTRACT.md](FRAMER_COMMERCE_CONTRACT.md) and [FRAMER_COMMERCE_TYPES.ts](FRAMER_COMMERCE_TYPES.ts).
+
+## Production code release — 1 November 2026
+
+The user reviewed the summary/diff and explicitly approved backend code deployment only. Commit `96a13ba8c5a7f143914aa3d2ccc61c21bf73a2e9` was pushed to backend main and deployed to Vercel production as `dpl_DP4AQbzbXqscY8987xXvAR34Xgij` (READY). Production alias: https://uppermost-dashboard-latest-orcin.vercel.app. Typecheck, 152 tests and production build passed before release. Read-only smoke checks returned 200 for all three category queries and unfiltered catalog, with 400 INVALID_CATEGORY for unknown. The unfiltered response retained its old fields. Catalog-route runtime error lookup returned no errors for the selected recent window. No payment/order was created.
+
+The insert-only seed was not executed. Therefore production Ghee currently contains Gir/Murrah; Mustard Oil and Pickles currently return empty arrays. Framer’s isolated design review still uses fixtures to show the unseeded products. Framer main, live storefront, staging configuration and environment variables were not changed by this backend release. Earlier preparation-only wording in these documents is historical and superseded by this release note.
+
+Actual read-only production captures from the deployed code, 1 November 2026: [Ghee](examples/category-catalog/ghee.production-response-2026-11-01.json), [Mustard Oil](examples/category-catalog/mustard-oil.production-response-2026-11-01.json), [Pickles](examples/category-catalog/pickles.production-response-2026-11-01.json). These are separate from the design fixtures above and show the currently unseeded production state.

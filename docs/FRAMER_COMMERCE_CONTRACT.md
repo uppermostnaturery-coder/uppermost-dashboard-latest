@@ -1433,3 +1433,9 @@ The bundled public/catalog photos are the approved local card assets. No uploads
 ### Loading behavior and inspectable examples
 
 The initial category response supplies both resting and hover card states. Hover and size selection perform no additional catalog request. Know more reuses the same data; a secondary image file may load when its drawer opens. On first opening, the shared cart drawer separately caches all three category catalogs for SKU display metadata. The design preview intercepts catalog/quote requests and disables payments; the new category backend is not deployed. See [CATEGORY_CATALOG_EXAMPLES.md](CATEGORY_CATALOG_EXAMPLES.md) for request examples, full fixture JSON, and the exact interaction-to-request mapping.
+
+## Production code release — 1 November 2026
+
+The user reviewed the summary/diff and explicitly approved backend code deployment only. Commit `96a13ba8c5a7f143914aa3d2ccc61c21bf73a2e9` was pushed to backend main and deployed to Vercel production as `dpl_DP4AQbzbXqscY8987xXvAR34Xgij` (READY). Production alias: https://uppermost-dashboard-latest-orcin.vercel.app. Typecheck, 152 tests and production build passed before release. Read-only smoke checks returned 200 for all three category queries and unfiltered catalog, with 400 INVALID_CATEGORY for unknown. The unfiltered response retained its old fields. Catalog-route runtime error lookup returned no errors for the selected recent window. No payment/order was created.
+
+The insert-only seed was not executed. Therefore production Ghee currently contains Gir/Murrah; Mustard Oil and Pickles currently return empty arrays. Framer’s isolated design review still uses fixtures to show the unseeded products. Framer main, live storefront, staging configuration and environment variables were not changed by this backend release. Earlier preparation-only wording in these documents is historical and superseded by this release note.

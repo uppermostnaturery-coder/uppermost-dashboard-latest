@@ -31,3 +31,9 @@ The catalog endpoint keeps its CORS/rate limit/cache behavior. Existing quote/pa
 - No real order/payment was created and no production database write was used to establish these results.
 
 [Runtime + migration patch](CATEGORY_BACKEND_REVIEW.patch). [Request/response examples](CATEGORY_CATALOG_EXAMPLES.md). [Full contract](FRAMER_COMMERCE_CONTRACT.md).
+
+## Production code release — 1 November 2026
+
+The user reviewed the summary/diff and explicitly approved backend code deployment only. Commit `96a13ba8c5a7f143914aa3d2ccc61c21bf73a2e9` was pushed to backend main and deployed to Vercel production as `dpl_DP4AQbzbXqscY8987xXvAR34Xgij` (READY). Production alias: https://uppermost-dashboard-latest-orcin.vercel.app. Typecheck, 152 tests and production build passed before release. Read-only smoke checks returned 200 for all three category queries and unfiltered catalog, with 400 INVALID_CATEGORY for unknown. The unfiltered response retained its old fields. Catalog-route runtime error lookup returned no errors for the selected recent window. No payment/order was created.
+
+The insert-only seed was not executed. Therefore production Ghee currently contains Gir/Murrah; Mustard Oil and Pickles currently return empty arrays. Framer’s isolated design review still uses fixtures to show the unseeded products. Framer main, live storefront, staging configuration and environment variables were not changed by this backend release. Earlier preparation-only wording in these documents is historical and superseded by this release note.

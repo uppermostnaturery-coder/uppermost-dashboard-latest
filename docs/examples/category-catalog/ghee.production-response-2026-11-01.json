@@ -1,0 +1,138 @@
+{
+  "ok": true,
+  "generated_at": "2026-11-01T06:36:02.905Z",
+  "category_id": "ghee",
+  "currency": "INR",
+  "products": [
+    {
+      "product_key": "gir",
+      "name": "Gir Cow Ghee",
+      "product_id": "86772128-16a2-46f1-a79c-dd87e4910c0b",
+      "listing": {
+        "category_id": "ghee",
+        "description": "Uppermost Gir Cow Ghee",
+        "images": [
+          {
+            "url": "https://framerusercontent.com/images/ubRN4xxbU3tqelmjiBswVT9N14.png",
+            "alt": "Gir Cow Ghee",
+            "kind": "packshot"
+          }
+        ],
+        "tags": [
+          "Pure Gir",
+          "Vedic Bilona",
+          "36 Botanicals",
+          "Ahimsa"
+        ],
+        "badge": "~30 jars a week",
+        "origin": "Uppermost Farms®",
+        "detail_url": "https://www.uppermost.store/ghee",
+        "coming_soon": false,
+        "max_cart_quantity": 1,
+        "display_order": 0
+      },
+      "active": true,
+      "variants": [
+        {
+          "sku": "GIR-1000",
+          "size": "1 L",
+          "active": true,
+          "sellable": true,
+          "max_cart_quantity": 1,
+          "pricing": {
+            "standard_price_paise": 750000,
+            "current_display_price_paise": 750000
+          },
+          "availability": {
+            "status": "IN_STOCK",
+            "release_total": 80,
+            "release_remaining": 54
+          },
+          "active_offers": []
+        },
+        {
+          "sku": "GIR-500",
+          "size": "500 ml",
+          "active": true,
+          "sellable": true,
+          "max_cart_quantity": 1,
+          "pricing": {
+            "standard_price_paise": 400000,
+            "current_display_price_paise": 400000
+          },
+          "availability": {
+            "status": "IN_STOCK",
+            "release_total": 40,
+            "release_remaining": 37
+          },
+          "active_offers": []
+        }
+      ]
+    },
+    {
+      "product_key": "murrah",
+      "name": "Murrah Buffalo Ghee",
+      "product_id": "c97882c0-8acc-4e19-905b-ed47bc7be894",
+      "listing": {
+        "category_id": "ghee",
+        "description": "Uppermost Murrah Buffalo Ghee",
+        "images": [
+          {
+            "url": "https://framerusercontent.com/images/vVTsQqQumaQUUwBWC82c4cNbCw.png",
+            "alt": "Murrah Buffalo Ghee",
+            "kind": "packshot"
+          }
+        ],
+        "tags": [
+          "Pure Murrah",
+          "Vedic Bilona",
+          "36 Botanicals",
+          "Ahimsa"
+        ],
+        "badge": "~30 jars a week",
+        "origin": "Uppermost Farms®",
+        "detail_url": "https://www.uppermost.store/ghee",
+        "coming_soon": false,
+        "max_cart_quantity": 1,
+        "display_order": 1
+      },
+      "active": true,
+      "variants": [
+        {
+          "sku": "MURRAH-1000",
+          "size": "1 L",
+          "active": true,
+          "sellable": true,
+          "max_cart_quantity": 1,
+          "pricing": {
+            "standard_price_paise": 550000,
+            "current_display_price_paise": 550000
+          },
+          "availability": {
+            "status": "IN_STOCK",
+            "release_total": 80,
+            "release_remaining": 65
+          },
+          "active_offers": []
+        },
+        {
+          "sku": "MURRAH-500",
+          "size": "500 ml",
+          "active": true,
+          "sellable": true,
+          "max_cart_quantity": 1,
+          "pricing": {
+            "standard_price_paise": 300000,
+            "current_display_price_paise": 300000
+          },
+          "availability": {
+            "status": "IN_STOCK",
+            "release_total": 40,
+            "release_remaining": 39
+          },
+          "active_offers": []
+        }
+      ]
+    }
+  ]
+}
