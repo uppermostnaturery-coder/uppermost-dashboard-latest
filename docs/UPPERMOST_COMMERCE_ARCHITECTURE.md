@@ -1,7 +1,7 @@
 # Uppermost® Commerce V1 — Architecture & Implementation Blueprint
 
 **Document status:** FROZEN PRODUCTION ARCHITECTURE
-**Version:** 1.7 (prepared production observability; commerce behavior unchanged)
+**Version:** 1.8 (additive category listing projection prepared locally)
 **Date:** 21 October 2026
 **Audience:** CXO / Product / Engineering / Framer / Operations / Growth  
 **Canonical repository path:** `docs/UPPERMOST_COMMERCE_ARCHITECTURE.md`
@@ -222,6 +222,10 @@ All money-changing endpoints require an `Idempotency-Key`. Same key + same reque
 `POST /api/commerce/quote` remains the final transactional authority for payable totals, promotion eligibility, Pair qualification, subscription benefits, entitlements and current inventory validation. Framer must refresh a quote before checkout and must render the returned quote when catalog display state and transactional state differ.
 
 Release inventory is stored independently from physical/on-hand inventory. A release records capacity and committed quantity; the public remaining amount is `max(release_capacity - release_committed, 0)`, constrained by physical sellable inventory when that value is known. Raw warehouse metadata and private promotion conditions are never returned by the public catalog route.
+
+### Category listing projection — local implementation, 31 October 2026
+
+The approved additive extension accepts `category_id=ghee|mustard-oil|pickles` on the existing public catalog route. Only category-filtered responses add the allowlisted card projection and quantity limits; unfiltered Buybox response fields and legacy product keys remain unchanged. Product category/media/tags use existing `products.metadata.listing`; optional per-size limits use `product_variants.metadata.max_cart_quantity`. No tables, access policies or pricing authorities are added. The current Gir/Murrah one-jar UI limit becomes server-enforced per product across sizes/cart lines; this is a per-cart limit, not lifetime household tracking. Quotes remain the payment authority. See `FRAMER_COMMERCE_CONTRACT.md` for the wire fields and template release prerequisites. No production migration or release has been performed.
 
 ## Core API Surface
 

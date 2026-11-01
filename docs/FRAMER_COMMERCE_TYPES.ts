@@ -34,6 +34,22 @@ export interface CatalogOffer {
   valid_until: string | null;
 }
 
+export type CatalogCategoryId = "ghee" | "mustard-oil" | "pickles";
+
+/** Present only on category-filtered catalog requests. */
+export interface CatalogListing {
+  category_id: CatalogCategoryId;
+  description: string;
+  images: Array<{ url: string; alt: string; kind: "packshot" | "photograph"; position?: "left" | "center" | "right" }>;
+  tags: string[];
+  badge: string | null;
+  origin: string;
+  detail_url: string | null;
+  coming_soon: boolean;
+  max_cart_quantity: number;
+  display_order: number;
+}
+
 export interface CatalogVariant {
   sku: string;
   size: string;
@@ -53,9 +69,13 @@ export interface CatalogVariant {
     release_remaining: number | null;
   };
   active_offers: CatalogOffer[];
+  /** Category projection only; quote/prepare enforce the actual limit. */
+  max_cart_quantity?: number;
 }
 
 export interface CatalogProduct {
+  product_id?: string;
+  listing?: CatalogListing;
   product_key: string;
   name: string;
   active: boolean;
@@ -63,6 +83,7 @@ export interface CatalogProduct {
 }
 
 export interface CatalogSuccessResponse {
+  category_id?: CatalogCategoryId;
   ok: true;
   generated_at: string;
   currency: Currency;

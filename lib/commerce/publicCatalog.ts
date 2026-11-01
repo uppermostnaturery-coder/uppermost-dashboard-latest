@@ -1,3 +1,4 @@
+import { categoryOf, listingFor, productCartLimit, quantityLimit, type CategoryId, type ListingDetails } from "./listing";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { calculateCartQuote } from "./pricing/calculateCartQuote";
 import type {
@@ -36,6 +37,7 @@ export type PublicCatalogVariant = {
     release_remaining: number | null;
   };
   active_offers: PublicCatalogOffer[];
+  max_cart_quantity?: number;
 };
 
 export type PublicCatalogProduct = {
@@ -43,11 +45,14 @@ export type PublicCatalogProduct = {
   name: string;
   active: boolean;
   variants: PublicCatalogVariant[];
+  product_id?: string;
+  listing?: ListingDetails;
 };
 
 export type PublicCatalogResponse = {
   ok: true;
   generated_at: string;
+  category_id?: CategoryId;
   currency: "INR";
   products: PublicCatalogProduct[];
 };
@@ -57,6 +62,8 @@ export type CatalogProductRow = {
   code: string;
   name: string;
   product_family: string;
+  description?: string | null;
+  metadata?: unknown;
   is_active: boolean;
 };
 
@@ -94,6 +101,7 @@ type VariantRow = {
   inventory_policy: "SUPABASE" | "SHOPIFY";
   inventory_quantity: number | null;
   is_active: boolean;
+  metadata?: unknown;
 };
 
 function promotionIsCurrent(promotion: PublicPromotionDefinition, nowMs: number): boolean {
@@ -243,6 +251,7 @@ export function buildPublicCatalogResponse(args: {
   releases: CatalogReleaseRow[];
   promotions: PublicPromotionDefinition[];
   now?: string;
+  categoryId?: CategoryId;
 }): PublicCatalogResponse {
   const now = args.now ?? new Date().toISOString();
   const nowMs = new Date(now).getTime();
@@ -253,12 +262,15 @@ export function buildPublicCatalogResponse(args: {
   return {
     ok: true,
     generated_at: now,
+    ...(args.categoryId ? { category_id: args.categoryId } : {}),
     currency: "INR",
     products: [...args.products]
-      .sort((left, right) => left.code.localeCompare(right.code))
+      .filter(product => !args.categoryId || categoryOf(product) === args.categoryId)
+      .sort((left, right) => args.categoryId ? (listingFor(left)?.display_order ?? 100) - (listingFor(right)?.display_order ?? 100) || left.code.localeCompare(right.code) : left.code.localeCompare(right.code))
       .map((product) => ({
         product_key: productKey(product),
         name: product.name,
+        ...(args.categoryId ? { product_id: product.id, listing: listingFor(product)! } : {}),
         active: product.is_active,
         variants: args.variants
           .filter((variant) => variant.product_id === product.id)
@@ -287,7 +299,8 @@ export function buildPublicCatalogResponse(args: {
               sku: variant.sku,
               size: variant.size_label,
               active: product.is_active && variant.is_active,
-              sellable: availability.sellable,
+              sellable: availability.sellable && !(args.categoryId && listingFor(product)?.coming_soon),
+              ...(args.categoryId ? { max_cart_quantity: !availability.sellable || listingFor(product)?.coming_soon ? 0 : Math.min(productCartLimit(product), variant.max_cart_quantity ?? 20, availability.release_remaining ?? variant.inventory_quantity ?? 20) } : {}),
               pricing: {
                 standard_price_paise: variant.price_paise,
                 current_display_price_paise: displayPrice(
@@ -309,17 +322,17 @@ export function buildPublicCatalogResponse(args: {
   };
 }
 
-export async function loadPublicCatalog(now = new Date().toISOString()) {
+export async function loadPublicCatalog(now = new Date().toISOString(), categoryId?: CategoryId) {
   const [productsResult, variantsResult, releasesResult, promotionsResult] =
     await Promise.all([
       supabaseAdmin
         .from("products")
-        .select("id, code, name, product_family, is_active")
+        .select("id, code, name, product_family, is_active, description, metadata")
         .order("code"),
       supabaseAdmin
         .from("product_variants")
         .select(
-          "id, product_id, sku, name, size_label, price_paise, currency, weight_grams, length_cm, breadth_cm, height_cm, external_shopify_variant_id, inventory_policy, inventory_quantity, is_active"
+          "id, product_id, sku, name, size_label, price_paise, currency, weight_grams, length_cm, breadth_cm, height_cm, external_shopify_variant_id, inventory_policy, inventory_quantity, is_active, metadata"
         )
         .order("sku"),
       supabaseAdmin
@@ -374,12 +387,15 @@ export async function loadPublicCatalog(now = new Date().toISOString()) {
       inventory_policy: row.inventory_policy,
       inventory_quantity: row.inventory_quantity,
       is_active: row.is_active,
+      max_cart_quantity: quantityLimit((row.metadata as Record<string, unknown> | null)?.max_cart_quantity),
+      product_max_cart_quantity: productCartLimit(product),
     } satisfies CatalogVariant;
   });
 
   return buildPublicCatalogResponse({
     products,
     variants,
+    categoryId,
     releases: (releasesResult.data ?? []) as CatalogReleaseRow[],
     promotions: (promotionsResult.data ?? []) as PublicPromotionDefinition[],
     now,

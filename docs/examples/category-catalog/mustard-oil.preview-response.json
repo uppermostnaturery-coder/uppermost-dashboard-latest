@@ -1,0 +1,172 @@
+{
+  "ok": true,
+  "generated_at": "2026-10-31T15:43:07.376Z",
+  "category_id": "mustard-oil",
+  "currency": "INR",
+  "products": [
+    {
+      "product_key": "cooking",
+      "name": "Cooking Mustard Oil",
+      "product_id": "COOKING_MUSTARD_OIL",
+      "listing": {
+        "category_id": "mustard-oil",
+        "description": "Early-harvest black mustard, cold-pressed once in a wooden kohlu. Bold and pungent — for tadka, sautéing and pickles.",
+        "images": [
+          {
+            "url": "http://localhost:61962/files/mustard-studio-light.webp",
+            "alt": "Cooking Mustard Oil",
+            "kind": "photograph",
+            "position": "left"
+          }
+        ],
+        "tags": [
+          "Black Mustard",
+          "Early Harvest",
+          "Up to 150°C",
+          "Wood Kohlu"
+        ],
+        "badge": "1 farm in 100",
+        "origin": "Aravali, Rajasthan",
+        "detail_url": "/files/uppermost-standard.html#chapter-5",
+        "coming_soon": false,
+        "max_cart_quantity": 1,
+        "display_order": 0
+      },
+      "active": false,
+      "variants": [
+        {
+          "sku": "MUSTARD-COOKING-1000",
+          "size": "1 L",
+          "active": false,
+          "sellable": false,
+          "max_cart_quantity": 0,
+          "pricing": {
+            "standard_price_paise": 79000,
+            "current_display_price_paise": 79000
+          },
+          "availability": {
+            "status": "UNAVAILABLE",
+            "release_total": null,
+            "release_remaining": null
+          },
+          "active_offers": []
+        }
+      ]
+    },
+    {
+      "product_key": "gourmet",
+      "name": "Gourmet Mustard Oil",
+      "product_id": "GOURMET_MUSTARD_OIL",
+      "listing": {
+        "category_id": "mustard-oil",
+        "description": "Early-harvest yellow mustard, cold-pressed once in a wooden kohlu. Mild and light — for dressings, drizzles and gentle sautéing.",
+        "images": [
+          {
+            "url": "http://localhost:61962/files/mustard-studio-light.webp",
+            "alt": "Gourmet Mustard Oil",
+            "kind": "photograph",
+            "position": "center"
+          }
+        ],
+        "tags": [
+          "Yellow Mustard",
+          "Early Harvest",
+          "Up to 140°C",
+          "Wood Kohlu"
+        ],
+        "badge": "1 farm in 100",
+        "origin": "Aravali, Rajasthan",
+        "detail_url": "/files/uppermost-standard.html#chapter-3",
+        "coming_soon": false,
+        "max_cart_quantity": 1,
+        "display_order": 1
+      },
+      "active": false,
+      "variants": [
+        {
+          "sku": "MUSTARD-GOURMET-1000",
+          "size": "1 L",
+          "active": false,
+          "sellable": false,
+          "max_cart_quantity": 0,
+          "pricing": {
+            "standard_price_paise": 99000,
+            "current_display_price_paise": 99000
+          },
+          "availability": {
+            "status": "UNAVAILABLE",
+            "release_total": null,
+            "release_remaining": null
+          },
+          "active_offers": []
+        },
+        {
+          "sku": "MUSTARD-GOURMET-5000",
+          "size": "5 L tin",
+          "active": false,
+          "sellable": false,
+          "max_cart_quantity": 0,
+          "pricing": {
+            "standard_price_paise": 449000,
+            "current_display_price_paise": 449000
+          },
+          "availability": {
+            "status": "UNAVAILABLE",
+            "release_total": null,
+            "release_remaining": null
+          },
+          "active_offers": []
+        }
+      ]
+    },
+    {
+      "product_key": "frying",
+      "name": "Frying Mustard Oil",
+      "product_id": "FRYING_MUSTARD_OIL",
+      "listing": {
+        "category_id": "mustard-oil",
+        "description": "Late-harvest, fully ripened black mustard, cold-pressed once in a wooden kohlu. Mild, with a smoke point up to 190°C — for deep frying and high heat.",
+        "images": [
+          {
+            "url": "http://localhost:61962/files/mustard-studio-light.webp",
+            "alt": "Frying Mustard Oil",
+            "kind": "photograph",
+            "position": "right"
+          }
+        ],
+        "tags": [
+          "Black Mustard",
+          "Late Harvest",
+          "Up to 190°C",
+          "Wood Kohlu"
+        ],
+        "badge": "1 farm in 100",
+        "origin": "Aravali, Rajasthan",
+        "detail_url": "/files/uppermost-standard.html#chapter-5",
+        "coming_soon": false,
+        "max_cart_quantity": 1,
+        "display_order": 2
+      },
+      "active": false,
+      "variants": [
+        {
+          "sku": "MUSTARD-FRYING-1000",
+          "size": "1 L",
+          "active": false,
+          "sellable": false,
+          "max_cart_quantity": 0,
+          "pricing": {
+            "standard_price_paise": 69000,
+            "current_display_price_paise": 69000
+          },
+          "availability": {
+            "status": "UNAVAILABLE",
+            "release_total": null,
+            "release_remaining": null
+          },
+          "active_offers": []
+        }
+      ]
+    }
+  ]
+}

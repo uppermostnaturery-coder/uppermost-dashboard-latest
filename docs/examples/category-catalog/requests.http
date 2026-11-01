@@ -1,0 +1,23 @@
+# Contract requests for the local category implementation; not a deployment verification.
+# Change apiBase to a backend running this branch. The production API is unchanged.
+@apiBase = http://localhost:3000
+
+### All four ghees after the product seed is configured
+GET {{apiBase}}/api/commerce/catalog?category_id=ghee
+Accept: application/json
+
+### Mustard oils
+GET {{apiBase}}/api/commerce/catalog?category_id=mustard-oil
+Accept: application/json
+
+### Pickles
+GET {{apiBase}}/api/commerce/catalog?category_id=pickles
+Accept: application/json
+
+### Existing BuyBox: unchanged unfiltered response contract
+GET {{apiBase}}/api/commerce/catalog
+Accept: application/json
+
+### Invalid category: 400 INVALID_CATEGORY
+GET {{apiBase}}/api/commerce/catalog?category_id=unknown
+Accept: application/json

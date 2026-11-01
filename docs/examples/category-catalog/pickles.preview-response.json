@@ -1,0 +1,67 @@
+{
+  "ok": true,
+  "generated_at": "2026-10-31T15:43:07.376Z",
+  "category_id": "pickles",
+  "currency": "INR",
+  "products": [
+    {
+      "product_key": "atlas-mango",
+      "name": "Atlas Jar · Mango",
+      "product_id": "MANGO_PICKLE",
+      "listing": {
+        "category_id": "pickles",
+        "description": "A closer look at the ingredients behind Atlas Pickle Jar: mangoes, glue berries and the decisions made before a jar is filled.",
+        "images": [
+          {
+            "url": "http://localhost:61962/files/mango-pickle-2.jpg",
+            "alt": "Uppermost Mango Pickle jar photographed in the grass",
+            "kind": "photograph"
+          },
+          {
+            "url": "http://localhost:61962/files/mango-pickle-1.jpg",
+            "alt": "Uppermost Mango Pickle jar on a wooden surface",
+            "kind": "photograph"
+          }
+        ],
+        "tags": [
+          "Ramkela Mango",
+          "15 Spices",
+          "Cold-Pressed Mustard Oil",
+          "Native Origins"
+        ],
+        "badge": "Coming soon",
+        "origin": "Atlas Jar",
+        "detail_url": "/files/uppermost-standard.html#chapter-3",
+        "coming_soon": true,
+        "max_cart_quantity": 1,
+        "display_order": 0
+      },
+      "active": false,
+      "variants": []
+    },
+    {
+      "product_key": "atlas-lemon",
+      "name": "Atlas Jar · Lemon",
+      "product_id": "LEMON_PICKLE",
+      "listing": {
+        "category_id": "pickles",
+        "description": "A closer look at the ingredients behind Atlas Pickle Jar: mangoes, glue berries and the decisions made before a jar is filled.",
+        "images": [],
+        "tags": [
+          "Kagzi Lemon",
+          "19 Spices",
+          "Oil-Free",
+          "Native Origins"
+        ],
+        "badge": "Coming soon",
+        "origin": "Atlas Jar",
+        "detail_url": "/files/uppermost-standard.html#chapter-3",
+        "coming_soon": true,
+        "max_cart_quantity": 1,
+        "display_order": 1
+      },
+      "active": false,
+      "variants": []
+    }
+  ]
+}

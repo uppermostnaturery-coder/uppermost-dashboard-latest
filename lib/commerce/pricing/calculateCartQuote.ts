@@ -1,3 +1,4 @@
+import { assertCartQuantityLimits } from "../cartLimits";
 import type {
   CartLineInput,
   CartQuote,
@@ -170,6 +171,8 @@ export function calculateCartQuote(input: CalculateCartQuoteInput): CartQuote {
   if (sourceItems.length === 0) {
     throw new Error("The evaluated cart has no eligible items.");
   }
+
+  assertCartQuantityLimits(sourceItems, input.catalog);
 
   const subscriptionIntervals = new Set(
     sourceItems

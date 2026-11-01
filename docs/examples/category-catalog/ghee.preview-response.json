@@ -1,0 +1,268 @@
+{
+  "ok": true,
+  "generated_at": "2026-10-31T15:43:07.354Z",
+  "category_id": "ghee",
+  "currency": "INR",
+  "products": [
+    {
+      "product_key": "gir",
+      "name": "Gir Cow Ghee",
+      "product_id": "gir",
+      "listing": {
+        "category_id": "ghee",
+        "description": "From the Gir cows of Uppermost Farms®. Golden, aromatic and fine-grained — the ghee that finishes a dish.",
+        "images": [
+          {
+            "url": "https://framerusercontent.com/images/ubRN4xxbU3tqelmjiBswVT9N14.png",
+            "alt": "Gir Cow Ghee",
+            "kind": "packshot"
+          }
+        ],
+        "tags": [
+          "Pure Gir",
+          "Vedic Bilona",
+          "36 Botanicals",
+          "Ahimsa"
+        ],
+        "badge": "~30 jars a week",
+        "origin": "Uppermost Farms®",
+        "detail_url": "https://www.uppermost.store/ghee",
+        "coming_soon": false,
+        "max_cart_quantity": 1,
+        "display_order": 0
+      },
+      "active": true,
+      "variants": [
+        {
+          "sku": "GIR-1000",
+          "size": "1 L",
+          "active": true,
+          "sellable": true,
+          "max_cart_quantity": 1,
+          "pricing": {
+            "standard_price_paise": 750000,
+            "current_display_price_paise": 750000
+          },
+          "availability": {
+            "status": "IN_STOCK",
+            "release_total": null,
+            "release_remaining": null
+          },
+          "active_offers": []
+        },
+        {
+          "sku": "GIR-500",
+          "size": "500 ml",
+          "active": true,
+          "sellable": true,
+          "max_cart_quantity": 1,
+          "pricing": {
+            "standard_price_paise": 400000,
+            "current_display_price_paise": 400000
+          },
+          "availability": {
+            "status": "IN_STOCK",
+            "release_total": null,
+            "release_remaining": null
+          },
+          "active_offers": []
+        }
+      ]
+    },
+    {
+      "product_key": "murrah",
+      "name": "Murrah Buffalo Ghee",
+      "product_id": "murrah",
+      "listing": {
+        "category_id": "ghee",
+        "description": "From the Murrah buffaloes of Uppermost Farms®. Ivory, dense and creamy — made for slow cooking, parathas and sweets.",
+        "images": [
+          {
+            "url": "https://framerusercontent.com/images/vVTsQqQumaQUUwBWC82c4cNbCw.png",
+            "alt": "Murrah Buffalo Ghee",
+            "kind": "packshot"
+          }
+        ],
+        "tags": [
+          "Pure Murrah",
+          "Vedic Bilona",
+          "36 Botanicals",
+          "Ahimsa"
+        ],
+        "badge": "~30 jars a week",
+        "origin": "Uppermost Farms®",
+        "detail_url": "https://www.uppermost.store/ghee",
+        "coming_soon": false,
+        "max_cart_quantity": 1,
+        "display_order": 1
+      },
+      "active": true,
+      "variants": [
+        {
+          "sku": "MURRAH-1000",
+          "size": "1 L",
+          "active": true,
+          "sellable": true,
+          "max_cart_quantity": 1,
+          "pricing": {
+            "standard_price_paise": 550000,
+            "current_display_price_paise": 550000
+          },
+          "availability": {
+            "status": "IN_STOCK",
+            "release_total": null,
+            "release_remaining": null
+          },
+          "active_offers": []
+        },
+        {
+          "sku": "MURRAH-500",
+          "size": "500 ml",
+          "active": true,
+          "sellable": true,
+          "max_cart_quantity": 1,
+          "pricing": {
+            "standard_price_paise": 300000,
+            "current_display_price_paise": 300000
+          },
+          "availability": {
+            "status": "IN_STOCK",
+            "release_total": null,
+            "release_remaining": null
+          },
+          "active_offers": []
+        }
+      ]
+    },
+    {
+      "product_key": "desi-cow",
+      "name": "A2 Desi Cow Ghee",
+      "product_id": "COMMUNITY_COW_GHEE",
+      "listing": {
+        "category_id": "ghee",
+        "description": "A2 Desi cow ghee from partner farms we know by name. Every batch tested for A2 protein.",
+        "images": [
+          {
+            "url": "http://localhost:61962/files/gir-calf.webp",
+            "alt": "A newborn calf in the Uppermost farm archive",
+            "kind": "photograph"
+          }
+        ],
+        "tags": [
+          "Desi Cow",
+          "A2 Tested",
+          "Bilona",
+          "Free Grazed"
+        ],
+        "badge": null,
+        "origin": "Community Farms",
+        "detail_url": "/files/uppermost-standard.html#chapter-2",
+        "coming_soon": false,
+        "max_cart_quantity": 1,
+        "display_order": 2
+      },
+      "active": false,
+      "variants": [
+        {
+          "sku": "COMMUNITY-COW-1000",
+          "size": "1 L",
+          "active": false,
+          "sellable": false,
+          "max_cart_quantity": 0,
+          "pricing": {
+            "standard_price_paise": 410000,
+            "current_display_price_paise": 410000
+          },
+          "availability": {
+            "status": "UNAVAILABLE",
+            "release_total": null,
+            "release_remaining": null
+          },
+          "active_offers": []
+        },
+        {
+          "sku": "COMMUNITY-COW-500",
+          "size": "500 ml",
+          "active": false,
+          "sellable": false,
+          "max_cart_quantity": 0,
+          "pricing": {
+            "standard_price_paise": 215000,
+            "current_display_price_paise": 215000
+          },
+          "availability": {
+            "status": "UNAVAILABLE",
+            "release_total": null,
+            "release_remaining": null
+          },
+          "active_offers": []
+        }
+      ]
+    },
+    {
+      "product_key": "desi-buffalo",
+      "name": "A2 Desi Buffalo Ghee",
+      "product_id": "COMMUNITY_BUFFALO_GHEE",
+      "listing": {
+        "category_id": "ghee",
+        "description": "A2 Desi buffalo ghee from partner farms we know by name. Every batch tested for A2 protein.",
+        "images": [
+          {
+            "url": "http://localhost:61962/files/buffalo.webp",
+            "alt": "A Murrah buffalo in the Uppermost farm archive",
+            "kind": "photograph"
+          }
+        ],
+        "tags": [
+          "Desi Buffalo",
+          "A2 Tested",
+          "Bilona",
+          "Free Grazed"
+        ],
+        "badge": null,
+        "origin": "Community Farms",
+        "detail_url": "/files/uppermost-standard.html",
+        "coming_soon": false,
+        "max_cart_quantity": 1,
+        "display_order": 3
+      },
+      "active": false,
+      "variants": [
+        {
+          "sku": "COMMUNITY-BUFFALO-1000",
+          "size": "1 L",
+          "active": false,
+          "sellable": false,
+          "max_cart_quantity": 0,
+          "pricing": {
+            "standard_price_paise": 300000,
+            "current_display_price_paise": 300000
+          },
+          "availability": {
+            "status": "UNAVAILABLE",
+            "release_total": null,
+            "release_remaining": null
+          },
+          "active_offers": []
+        },
+        {
+          "sku": "COMMUNITY-BUFFALO-500",
+          "size": "500 ml",
+          "active": false,
+          "sellable": false,
+          "max_cart_quantity": 0,
+          "pricing": {
+            "standard_price_paise": 160000,
+            "current_display_price_paise": 160000
+          },
+          "availability": {
+            "status": "UNAVAILABLE",
+            "release_total": null,
+            "release_remaining": null
+          },
+          "active_offers": []
+        }
+      ]
+    }
+  ]
+}

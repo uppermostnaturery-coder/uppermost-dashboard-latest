@@ -1,0 +1,388 @@
+diff --git a/app/api/commerce/catalog/route.ts b/app/api/commerce/catalog/route.ts
+index 4364da3..d12e1c7 100644
+--- a/app/api/commerce/catalog/route.ts
++++ b/app/api/commerce/catalog/route.ts
+@@ -1,5 +1,7 @@
++import { CATEGORY_IDS, type CategoryId } from "@/lib/commerce/listing";
+ import {withObservation} from "@/lib/observability/server";
+ import {
++  CommerceError,
+   assertCommerceOrigin,
+   commerceCorsHeaders,
+   commerceJson,
+@@ -25,7 +27,11 @@ async function observedGET(request: Request) {
+   try {
+     origin = assertCommerceOrigin(request);
+     enforceRateLimit(request, "commerce-catalog", 60);
+-    const catalog = await loadPublicCatalog();
++    const categories = new URL(request.url).searchParams.getAll("category_id");
++    if (categories.length > 1 || (categories.length === 1 && !CATEGORY_IDS.includes(categories[0] as CategoryId))) {
++      throw new CommerceError("INVALID_CATEGORY", "Choose a valid product category.", 400);
++    }
++    const catalog = await loadPublicCatalog(undefined, categories[0] as CategoryId | undefined);
+     const response = commerceJson(catalog, 200, origin, METHODS);
+     response.headers.set("Cache-Control", PUBLIC_CACHE);
+     return response;
+diff --git a/lib/commerce/catalog.ts b/lib/commerce/catalog.ts
+index 572d69c..242bfc3 100644
+--- a/lib/commerce/catalog.ts
++++ b/lib/commerce/catalog.ts
+@@ -1,3 +1,5 @@
++import { assertCartQuantityLimits, CartQuantityLimitError } from "./cartLimits";
++import { object, productCartLimit, quantityLimit } from "./listing";
+ import { supabaseAdmin } from "@/lib/supabaseAdmin";
+ import { getCommerceEnv, getShopifyEnv } from "./env";
+ import { CommerceError } from "./http";
+@@ -19,9 +21,10 @@ type VariantRow = {
+   inventory_policy: "SUPABASE" | "SHOPIFY";
+   inventory_quantity: number | null;
+   is_active: boolean;
++  metadata?: unknown;
+   products:
+-    | { code: string; name: string; product_family: string }
+-    | Array<{ code: string; name: string; product_family: string }>;
++    | { code: string; name: string; product_family: string; metadata?: unknown; is_active?: boolean }
++    | Array<{ code: string; name: string; product_family: string; metadata?: unknown; is_active?: boolean }>;
+ };
+ 
+ type ReleaseInventoryRow = {
+@@ -132,7 +135,7 @@ export async function loadCatalogVariants(skus: string[]): Promise<CatalogVarian
+   const { data, error } = await supabaseAdmin
+     .from("product_variants")
+     .select(
+-      "id, product_id, sku, name, size_label, price_paise, currency, weight_grams, length_cm, breadth_cm, height_cm, external_shopify_variant_id, inventory_policy, inventory_quantity, is_active, products!inner(code, name, product_family)"
++      "id, product_id, sku, name, size_label, price_paise, currency, weight_grams, length_cm, breadth_cm, height_cm, external_shopify_variant_id, inventory_policy, inventory_quantity, is_active, metadata, products!inner(code, name, product_family, metadata, is_active)"
+     )
+     .in("sku", uniqueSkus);
+ 
+@@ -158,7 +161,9 @@ export async function loadCatalogVariants(skus: string[]): Promise<CatalogVarian
+       external_shopify_variant_id: row.external_shopify_variant_id,
+       inventory_policy: row.inventory_policy,
+       inventory_quantity: row.inventory_quantity,
+-      is_active: row.is_active,
++      is_active: row.is_active && product.is_active !== false && object(object(product.metadata).listing).coming_soon !== true,
++      max_cart_quantity: quantityLimit(object(row.metadata).max_cart_quantity),
++      product_max_cart_quantity: productCartLimit(product),
+     } satisfies CatalogVariant;
+   });
+ 
+@@ -206,7 +211,13 @@ export function assertInventory(
+   requested: Array<{ sku: string; qty: number }>,
+   catalog: CatalogVariant[]
+ ): void {
++  try { assertCartQuantityLimits(requested, catalog); } catch (error) {
++    if (error instanceof CartQuantityLimitError) throw new CommerceError("CART_QUANTITY_LIMIT", error.message, 409);
++    throw error;
++  }
+   const bySku = new Map(catalog.map((variant) => [variant.sku, variant]));
++  const aggregate = new Map<string, number>();
++  requested.forEach(item => aggregate.set(item.sku, (aggregate.get(item.sku) ?? 0) + item.qty));
+   for (const item of requested) {
+     const variant = bySku.get(item.sku);
+     if (!variant?.is_active) {
+@@ -215,7 +226,7 @@ export function assertInventory(
+     if (
+       variant.inventory_quantity !== null &&
+       variant.inventory_quantity !== undefined &&
+-      variant.inventory_quantity < item.qty
++      variant.inventory_quantity < (aggregate.get(item.sku) ?? item.qty)
+     ) {
+       throw new CommerceError(
+         "INSUFFICIENT_INVENTORY",
+diff --git a/lib/commerce/pricing/calculateCartQuote.ts b/lib/commerce/pricing/calculateCartQuote.ts
+index eed49bf..3886a9e 100644
+--- a/lib/commerce/pricing/calculateCartQuote.ts
++++ b/lib/commerce/pricing/calculateCartQuote.ts
+@@ -1,3 +1,4 @@
++import { assertCartQuantityLimits } from "../cartLimits";
+ import type {
+   CartLineInput,
+   CartQuote,
+@@ -171,6 +172,8 @@ export function calculateCartQuote(input: CalculateCartQuoteInput): CartQuote {
+     throw new Error("The evaluated cart has no eligible items.");
+   }
+ 
++  assertCartQuantityLimits(sourceItems, input.catalog);
++
+   const subscriptionIntervals = new Set(
+     sourceItems
+       .filter((item) => item.purchase_mode === "SUBSCRIPTION")
+diff --git a/lib/commerce/publicCatalog.ts b/lib/commerce/publicCatalog.ts
+index b36b662..81b3fbd 100644
+--- a/lib/commerce/publicCatalog.ts
++++ b/lib/commerce/publicCatalog.ts
+@@ -1,3 +1,4 @@
++import { categoryOf, listingFor, productCartLimit, quantityLimit, type CategoryId, type ListingDetails } from "./listing";
+ import { supabaseAdmin } from "@/lib/supabaseAdmin";
+ import { calculateCartQuote } from "./pricing/calculateCartQuote";
+ import type {
+@@ -36,6 +37,7 @@ export type PublicCatalogVariant = {
+     release_remaining: number | null;
+   };
+   active_offers: PublicCatalogOffer[];
++  max_cart_quantity?: number;
+ };
+ 
+ export type PublicCatalogProduct = {
+@@ -43,11 +45,14 @@ export type PublicCatalogProduct = {
+   name: string;
+   active: boolean;
+   variants: PublicCatalogVariant[];
++  product_id?: string;
++  listing?: ListingDetails;
+ };
+ 
+ export type PublicCatalogResponse = {
+   ok: true;
+   generated_at: string;
++  category_id?: CategoryId;
+   currency: "INR";
+   products: PublicCatalogProduct[];
+ };
+@@ -57,6 +62,8 @@ export type CatalogProductRow = {
+   code: string;
+   name: string;
+   product_family: string;
++  description?: string | null;
++  metadata?: unknown;
+   is_active: boolean;
+ };
+ 
+@@ -94,6 +101,7 @@ type VariantRow = {
+   inventory_policy: "SUPABASE" | "SHOPIFY";
+   inventory_quantity: number | null;
+   is_active: boolean;
++  metadata?: unknown;
+ };
+ 
+ function promotionIsCurrent(promotion: PublicPromotionDefinition, nowMs: number): boolean {
+@@ -243,6 +251,7 @@ export function buildPublicCatalogResponse(args: {
+   releases: CatalogReleaseRow[];
+   promotions: PublicPromotionDefinition[];
+   now?: string;
++  categoryId?: CategoryId;
+ }): PublicCatalogResponse {
+   const now = args.now ?? new Date().toISOString();
+   const nowMs = new Date(now).getTime();
+@@ -253,12 +262,15 @@ export function buildPublicCatalogResponse(args: {
+   return {
+     ok: true,
+     generated_at: now,
++    ...(args.categoryId ? { category_id: args.categoryId } : {}),
+     currency: "INR",
+     products: [...args.products]
+-      .sort((left, right) => left.code.localeCompare(right.code))
++      .filter(product => !args.categoryId || categoryOf(product) === args.categoryId)
++      .sort((left, right) => args.categoryId ? (listingFor(left)?.display_order ?? 100) - (listingFor(right)?.display_order ?? 100) || left.code.localeCompare(right.code) : left.code.localeCompare(right.code))
+       .map((product) => ({
+         product_key: productKey(product),
+         name: product.name,
++        ...(args.categoryId ? { product_id: product.id, listing: listingFor(product)! } : {}),
+         active: product.is_active,
+         variants: args.variants
+           .filter((variant) => variant.product_id === product.id)
+@@ -287,7 +299,8 @@ export function buildPublicCatalogResponse(args: {
+               sku: variant.sku,
+               size: variant.size_label,
+               active: product.is_active && variant.is_active,
+-              sellable: availability.sellable,
++              sellable: availability.sellable && !(args.categoryId && listingFor(product)?.coming_soon),
++              ...(args.categoryId ? { max_cart_quantity: !availability.sellable || listingFor(product)?.coming_soon ? 0 : Math.min(productCartLimit(product), variant.max_cart_quantity ?? 20, availability.release_remaining ?? variant.inventory_quantity ?? 20) } : {}),
+               pricing: {
+                 standard_price_paise: variant.price_paise,
+                 current_display_price_paise: displayPrice(
+@@ -309,17 +322,17 @@ export function buildPublicCatalogResponse(args: {
+   };
+ }
+ 
+-export async function loadPublicCatalog(now = new Date().toISOString()) {
++export async function loadPublicCatalog(now = new Date().toISOString(), categoryId?: CategoryId) {
+   const [productsResult, variantsResult, releasesResult, promotionsResult] =
+     await Promise.all([
+       supabaseAdmin
+         .from("products")
+-        .select("id, code, name, product_family, is_active")
++        .select("id, code, name, product_family, is_active, description, metadata")
+         .order("code"),
+       supabaseAdmin
+         .from("product_variants")
+         .select(
+-          "id, product_id, sku, name, size_label, price_paise, currency, weight_grams, length_cm, breadth_cm, height_cm, external_shopify_variant_id, inventory_policy, inventory_quantity, is_active"
++          "id, product_id, sku, name, size_label, price_paise, currency, weight_grams, length_cm, breadth_cm, height_cm, external_shopify_variant_id, inventory_policy, inventory_quantity, is_active, metadata"
+         )
+         .order("sku"),
+       supabaseAdmin
+@@ -374,12 +387,15 @@ export async function loadPublicCatalog(now = new Date().toISOString()) {
+       inventory_policy: row.inventory_policy,
+       inventory_quantity: row.inventory_quantity,
+       is_active: row.is_active,
++      max_cart_quantity: quantityLimit((row.metadata as Record<string, unknown> | null)?.max_cart_quantity),
++      product_max_cart_quantity: productCartLimit(product),
+     } satisfies CatalogVariant;
+   });
+ 
+   return buildPublicCatalogResponse({
+     products,
+     variants,
++    categoryId,
+     releases: (releasesResult.data ?? []) as CatalogReleaseRow[],
+     promotions: (promotionsResult.data ?? []) as PublicPromotionDefinition[],
+     now,
+diff --git a/lib/commerce/types.ts b/lib/commerce/types.ts
+index 8503893..3fa264f 100644
+--- a/lib/commerce/types.ts
++++ b/lib/commerce/types.ts
+@@ -11,6 +11,8 @@ export type CartLineInput = {
+ };
+ 
+ export type CatalogVariant = {
++  max_cart_quantity?: number;
++  product_max_cart_quantity?: number;
+   id: string;
+   product_id: string;
+   product_code: string;
+
+diff --git a/lib/commerce/listing.ts b/lib/commerce/listing.ts
+new file mode 100644
+index 0000000..9741be9
+--- /dev/null
++++ b/lib/commerce/listing.ts
+@@ -0,0 +1,58 @@
++/** Public card projection from an allowlisted part of existing product metadata. */
++export const CATEGORY_IDS = ["ghee", "mustard-oil", "pickles"] as const;
++export type CategoryId = typeof CATEGORY_IDS[number];
++export const MAX_CART_QUANTITY = 20;
++export type ListingImage = { url: string; alt: string; kind: "packshot" | "photograph"; position?: "left" | "center" | "right" };
++export type ListingDetails = {
++  category_id: CategoryId;
++  description: string;
++  images: ListingImage[];
++  tags: string[];
++  badge: string | null;
++  origin: string;
++  detail_url: string | null;
++  coming_soon: boolean;
++  max_cart_quantity: number;
++  display_order: number;
++};
++type Product = { code: string; name: string; description?: string | null; metadata?: unknown };
++const LEGACY: Record<string, { image: string; tags: string[]; order: number }> = {
++  GIR_GHEE: { image: "ubRN4xxbU3tqelmjiBswVT9N14.png", tags: ["Pure Gir", "Vedic Bilona", "36 Botanicals", "Ahimsa"], order: 0 },
++  MURRAH_GHEE: { image: "vVTsQqQumaQUUwBWC82c4cNbCw.png", tags: ["Pure Murrah", "Vedic Bilona", "36 Botanicals", "Ahimsa"], order: 1 },
++};
++export function object(value: unknown): Record<string, unknown> {
++  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
++}
++export function quantityLimit(value: unknown, fallback = MAX_CART_QUANTITY): number {
++  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= MAX_CART_QUANTITY ? value : fallback;
++}
++export function productCartLimit(product: Pick<Product, "code" | "metadata">): number {
++  return quantityLimit(object(object(product.metadata).listing).max_cart_quantity, LEGACY[product.code] ? 1 : MAX_CART_QUANTITY);
++}
++export function categoryOf(product: Product): CategoryId | null {
++  const category = object(object(product.metadata).listing).category_id;
++  return CATEGORY_IDS.includes(category as CategoryId) ? category as CategoryId : LEGACY[product.code] ? "ghee" : null;
++}
++function text(value: unknown, max = 500): string { return typeof value === "string" ? value.trim().slice(0, max) : ""; }
++function publicUrl(value: unknown): string | null {
++  const url = text(value, 2048);
++  if (/^\/(?!\/|\\)/.test(url) && !url.includes("\\")) return url;
++  try { const parsed = new URL(url); return parsed.protocol === "https:" && !parsed.username && !parsed.password ? url : null; } catch { return null; }
++}
++export function listingFor(product: Product): ListingDetails | null {
++  const category = categoryOf(product); if (!category) return null;
++  const data = object(object(product.metadata).listing), legacy = LEGACY[product.code];
++  const images: ListingImage[] = (Array.isArray(data.images) ? data.images : []).slice(0, 4).flatMap(value => {
++    const image = object(value), url = publicUrl(image.url);
++    return url ? [{ url, alt: text(image.alt, 240) || product.name, kind: image.kind === "packshot" ? "packshot" as const : "photograph" as const, ...(["left", "center", "right"].includes(String(image.position)) ? { position: image.position as "left" | "center" | "right" } : {}) }] : [];
++  });
++  if (!images.length && legacy) images.push({ url: "https://framerusercontent.com/images/" + legacy.image, alt: product.name, kind: "packshot" });
++  return {
++    category_id: category, description: text(product.description, 1200), images,
++    tags: (Array.isArray(data.tags) ? data.tags : legacy?.tags ?? []).flatMap(value => { const tag = text(value, 80); return tag ? [tag] : []; }).slice(0, 8),
++    badge: text(data.badge, 80) || (legacy ? "~30 jars a week" : null), origin: text(data.origin, 120) || (legacy ? "Uppermost Farms®" : ""),
++    detail_url: publicUrl(data.detail_url) || (legacy ? "https://www.uppermost.store/ghee" : null),
++    coming_soon: data.coming_soon === true, max_cart_quantity: productCartLimit(product),
++    display_order: typeof data.display_order === "number" && Number.isFinite(data.display_order) ? data.display_order : legacy?.order ?? 100,
++  };
++}
+
+diff --git a/lib/commerce/cartLimits.ts b/lib/commerce/cartLimits.ts
+new file mode 100644
+index 0000000..655d77e
+--- /dev/null
++++ b/lib/commerce/cartLimits.ts
+@@ -0,0 +1,21 @@
++import type { CatalogVariant } from "./types";
++
++export class CartQuantityLimitError extends Error {
++  constructor(public readonly sku: string, public readonly limit: number) {
++    super(`Cart quantity limit for ${sku} is ${limit}.`);
++  }
++}
++
++/** Aggregate all lines, including different sizes of the same product. */
++export function assertCartQuantityLimits(items: Array<{ sku: string; qty: number }>, catalog: CatalogVariant[]): void {
++  const bySku = new Map(catalog.map(variant => [variant.sku, variant]));
++  const skuCounts = new Map<string, number>(), productCounts = new Map<string, number>();
++  for (const item of items) {
++    const variant = bySku.get(item.sku); if (!variant) continue;
++    const skuCount = (skuCounts.get(item.sku) ?? 0) + item.qty;
++    const productCount = (productCounts.get(variant.product_id) ?? 0) + item.qty;
++    skuCounts.set(item.sku, skuCount); productCounts.set(variant.product_id, productCount);
++    if (skuCount > (variant.max_cart_quantity ?? 20)) throw new CartQuantityLimitError(item.sku, variant.max_cart_quantity ?? 20);
++    if (productCount > (variant.product_max_cart_quantity ?? 20)) throw new CartQuantityLimitError(item.sku, variant.product_max_cart_quantity ?? 20);
++  }
++}
+
+diff --git a/supabase/migrations/20261031141600_add_category_listing_products.sql b/supabase/migrations/20261031141600_add_category_listing_products.sql
+new file mode 100644
+index 0000000..ef5c845
+--- /dev/null
++++ b/supabase/migrations/20261031141600_add_category_listing_products.sql
+@@ -0,0 +1,45 @@
++-- INSERT-ONLY template. Not applied by this implementation.
++-- Existing Gir/Murrah rows, prices, SKUs, promotions and RLS are untouched.
++-- Edit the product rows below and the size rows in the second block BEFORE first application.
++-- New rows default inactive. Set active/inventory only after real price, shipping measurements,
++-- media and fulfilment configuration are approved. Missing variant configuration is skipped.
++-- Reruns insert missing rows only; they never overwrite or activate an existing row.
++BEGIN;
++
++INSERT INTO public.products (code, name, product_family, description, is_active, metadata)
++VALUES
++  ('MANGO_PICKLE', 'Atlas Jar · Mango', 'atlas-mango', 'A closer look at the ingredients behind Atlas Pickle Jar: mangoes, glue berries and the decisions made before a jar is filled.', false, '{"listing": {"category_id": "pickles", "images": [{"url": "/catalog/mango-pickle-2.jpg", "alt": "Uppermost Mango Pickle jar photographed in the grass", "kind": "photograph"}, {"url": "/catalog/mango-pickle-1.jpg", "alt": "Uppermost Mango Pickle jar on a wooden surface", "kind": "photograph"}], "tags": ["Ramkela Mango", "15 Spices", "Cold-Pressed Mustard Oil", "Native Origins"], "badge": "Coming soon", "origin": "Atlas Jar", "detail_url": "/files/uppermost-standard.html#chapter-3", "coming_soon": true, "max_cart_quantity": 1, "display_order": 0}}'::jsonb),
++  ('LEMON_PICKLE', 'Atlas Jar · Lemon', 'atlas-lemon', 'A closer look at the ingredients behind Atlas Pickle Jar: mangoes, glue berries and the decisions made before a jar is filled.', false, '{"listing": {"category_id": "pickles", "images": [], "tags": ["Kagzi Lemon", "19 Spices", "Oil-Free", "Native Origins"], "badge": "Coming soon", "origin": "Atlas Jar", "detail_url": "/files/uppermost-standard.html#chapter-3", "coming_soon": true, "max_cart_quantity": 1, "display_order": 1}}'::jsonb),
++  ('COOKING_MUSTARD_OIL', 'Cooking Mustard Oil', 'cooking', 'Early-harvest black mustard, cold-pressed once in a wooden kohlu. Bold and pungent — for tadka, sautéing and pickles.', false, '{"listing": {"category_id": "mustard-oil", "images": [{"url": "/catalog/mustard-studio-light.webp", "alt": "Cooking Mustard Oil", "kind": "photograph", "position": "left"}], "tags": ["Black Mustard", "Early Harvest", "Up to 150°C", "Wood Kohlu"], "badge": "1 farm in 100", "origin": "Aravali, Rajasthan", "detail_url": "/files/uppermost-standard.html#chapter-5", "coming_soon": false, "max_cart_quantity": 1, "display_order": 0}}'::jsonb),
++  ('GOURMET_MUSTARD_OIL', 'Gourmet Mustard Oil', 'gourmet', 'Early-harvest yellow mustard, cold-pressed once in a wooden kohlu. Mild and light — for dressings, drizzles and gentle sautéing.', false, '{"listing": {"category_id": "mustard-oil", "images": [{"url": "/catalog/mustard-studio-light.webp", "alt": "Gourmet Mustard Oil", "kind": "photograph", "position": "center"}], "tags": ["Yellow Mustard", "Early Harvest", "Up to 140°C", "Wood Kohlu"], "badge": "1 farm in 100", "origin": "Aravali, Rajasthan", "detail_url": "/files/uppermost-standard.html#chapter-3", "coming_soon": false, "max_cart_quantity": 1, "display_order": 1}}'::jsonb),
++  ('FRYING_MUSTARD_OIL', 'Frying Mustard Oil', 'frying', 'Late-harvest, fully ripened black mustard, cold-pressed once in a wooden kohlu. Mild, with a smoke point up to 190°C — for deep frying and high heat.', false, '{"listing": {"category_id": "mustard-oil", "images": [{"url": "/catalog/mustard-studio-light.webp", "alt": "Frying Mustard Oil", "kind": "photograph", "position": "right"}], "tags": ["Black Mustard", "Late Harvest", "Up to 190°C", "Wood Kohlu"], "badge": "1 farm in 100", "origin": "Aravali, Rajasthan", "detail_url": "/files/uppermost-standard.html#chapter-5", "coming_soon": false, "max_cart_quantity": 1, "display_order": 2}}'::jsonb),
++  ('COMMUNITY_COW_GHEE', 'A2 Desi Cow Ghee', 'desi-cow', 'A2 Desi cow ghee from partner farms we know by name. Every batch tested for A2 protein.', false, '{"listing": {"category_id": "ghee", "images": [{"url": "/catalog/gir-calf.webp", "alt": "A newborn calf in the Uppermost farm archive", "kind": "photograph"}], "tags": ["Desi Cow", "A2 Tested", "Bilona", "Free Grazed"], "badge": null, "origin": "Community Farms", "detail_url": "/files/uppermost-standard.html#chapter-2", "coming_soon": false, "max_cart_quantity": 1, "display_order": 2}}'::jsonb),
++  ('COMMUNITY_BUFFALO_GHEE', 'A2 Desi Buffalo Ghee', 'desi-buffalo', 'A2 Desi buffalo ghee from partner farms we know by name. Every batch tested for A2 protein.', false, '{"listing": {"category_id": "ghee", "images": [{"url": "/catalog/buffalo.webp", "alt": "A Murrah buffalo in the Uppermost farm archive", "kind": "photograph"}], "tags": ["Desi Buffalo", "A2 Tested", "Bilona", "Free Grazed"], "badge": null, "origin": "Community Farms", "detail_url": "/files/uppermost-standard.html", "coming_soon": false, "max_cart_quantity": 1, "display_order": 3}}'::jsonb)
++ON CONFLICT (code) DO NOTHING;
++
++-- Add product size rows here. Price is INTEGER PAISE. NULL means not configured.
++-- Shipping weight/dimensions must be measured, not guessed. A row with NULL fields is not inserted.
++-- Pickle sizes/prices are not approved yet; add their rows once confirmed.
++WITH sizes (product_code, sku, name, size_label, price_paise, weight_grams,
++            length_cm, breadth_cm, height_cm, inventory_quantity, is_active) AS (
++  VALUES
++    ('COMMUNITY_COW_GHEE', 'COMMUNITY-COW-1000', 'A2 Desi Cow Ghee 1 L', '1 L', 410000::bigint, NULL::integer, NULL::numeric, NULL::numeric, NULL::numeric, 0, false),
++    ('COMMUNITY_COW_GHEE', 'COMMUNITY-COW-500', 'A2 Desi Cow Ghee 500 ml', '500 ml', 215000, NULL, NULL, NULL, NULL, 0, false),
++    ('COMMUNITY_BUFFALO_GHEE', 'COMMUNITY-BUFFALO-1000', 'A2 Desi Buffalo Ghee 1 L', '1 L', 300000, NULL, NULL, NULL, NULL, 0, false),
++    ('COMMUNITY_BUFFALO_GHEE', 'COMMUNITY-BUFFALO-500', 'A2 Desi Buffalo Ghee 500 ml', '500 ml', 160000, NULL, NULL, NULL, NULL, 0, false),
++    ('COOKING_MUSTARD_OIL', 'MUSTARD-COOKING-1000', 'Cooking Mustard Oil 1 L', '1 L', NULL, NULL, NULL, NULL, NULL, 0, false),
++    ('GOURMET_MUSTARD_OIL', 'MUSTARD-GOURMET-1000', 'Gourmet Mustard Oil 1 L', '1 L', NULL, NULL, NULL, NULL, NULL, 0, false),
++    ('GOURMET_MUSTARD_OIL', 'MUSTARD-GOURMET-5000', 'Gourmet Mustard Oil 5 L tin', '5 L tin', NULL, NULL, NULL, NULL, NULL, 0, false),
++    ('FRYING_MUSTARD_OIL', 'MUSTARD-FRYING-1000', 'Frying Mustard Oil 1 L', '1 L', NULL, NULL, NULL, NULL, NULL, 0, false)
++)
++INSERT INTO public.product_variants
++  (product_id, sku, name, size_label, price_paise, weight_grams, length_cm, breadth_cm,
++   height_cm, inventory_quantity, inventory_policy, is_active, metadata)
++SELECT p.id, s.sku, s.name, s.size_label, s.price_paise, s.weight_grams,
++       s.length_cm, s.breadth_cm, s.height_cm, s.inventory_quantity, 'SUPABASE', s.is_active,
++       '{"max_cart_quantity":1}'::jsonb
++FROM sizes s JOIN public.products p ON p.code = s.product_code
++WHERE s.price_paise IS NOT NULL AND s.weight_grams IS NOT NULL
++  AND s.length_cm IS NOT NULL AND s.breadth_cm IS NOT NULL AND s.height_cm IS NOT NULL
++ON CONFLICT (sku) DO NOTHING;
++COMMIT;

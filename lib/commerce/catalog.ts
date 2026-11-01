@@ -1,3 +1,5 @@
+import { assertCartQuantityLimits, CartQuantityLimitError } from "./cartLimits";
+import { object, productCartLimit, quantityLimit } from "./listing";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getCommerceEnv, getShopifyEnv } from "./env";
 import { CommerceError } from "./http";
@@ -19,9 +21,10 @@ type VariantRow = {
   inventory_policy: "SUPABASE" | "SHOPIFY";
   inventory_quantity: number | null;
   is_active: boolean;
+  metadata?: unknown;
   products:
-    | { code: string; name: string; product_family: string }
-    | Array<{ code: string; name: string; product_family: string }>;
+    | { code: string; name: string; product_family: string; metadata?: unknown; is_active?: boolean }
+    | Array<{ code: string; name: string; product_family: string; metadata?: unknown; is_active?: boolean }>;
 };
 
 type ReleaseInventoryRow = {
@@ -132,7 +135,7 @@ export async function loadCatalogVariants(skus: string[]): Promise<CatalogVarian
   const { data, error } = await supabaseAdmin
     .from("product_variants")
     .select(
-      "id, product_id, sku, name, size_label, price_paise, currency, weight_grams, length_cm, breadth_cm, height_cm, external_shopify_variant_id, inventory_policy, inventory_quantity, is_active, products!inner(code, name, product_family)"
+      "id, product_id, sku, name, size_label, price_paise, currency, weight_grams, length_cm, breadth_cm, height_cm, external_shopify_variant_id, inventory_policy, inventory_quantity, is_active, metadata, products!inner(code, name, product_family, metadata, is_active)"
     )
     .in("sku", uniqueSkus);
 
@@ -158,7 +161,9 @@ export async function loadCatalogVariants(skus: string[]): Promise<CatalogVarian
       external_shopify_variant_id: row.external_shopify_variant_id,
       inventory_policy: row.inventory_policy,
       inventory_quantity: row.inventory_quantity,
-      is_active: row.is_active,
+      is_active: row.is_active && product.is_active !== false && object(object(product.metadata).listing).coming_soon !== true,
+      max_cart_quantity: quantityLimit(object(row.metadata).max_cart_quantity),
+      product_max_cart_quantity: productCartLimit(product),
     } satisfies CatalogVariant;
   });
 
@@ -206,7 +211,13 @@ export function assertInventory(
   requested: Array<{ sku: string; qty: number }>,
   catalog: CatalogVariant[]
 ): void {
+  try { assertCartQuantityLimits(requested, catalog); } catch (error) {
+    if (error instanceof CartQuantityLimitError) throw new CommerceError("CART_QUANTITY_LIMIT", error.message, 409);
+    throw error;
+  }
   const bySku = new Map(catalog.map((variant) => [variant.sku, variant]));
+  const aggregate = new Map<string, number>();
+  requested.forEach(item => aggregate.set(item.sku, (aggregate.get(item.sku) ?? 0) + item.qty));
   for (const item of requested) {
     const variant = bySku.get(item.sku);
     if (!variant?.is_active) {
@@ -215,7 +226,7 @@ export function assertInventory(
     if (
       variant.inventory_quantity !== null &&
       variant.inventory_quantity !== undefined &&
-      variant.inventory_quantity < item.qty
+      variant.inventory_quantity < (aggregate.get(item.sku) ?? item.qty)
     ) {
       throw new CommerceError(
         "INSUFFICIENT_INVENTORY",

@@ -1,5 +1,7 @@
+import { CATEGORY_IDS, type CategoryId } from "@/lib/commerce/listing";
 import {withObservation} from "@/lib/observability/server";
 import {
+  CommerceError,
   assertCommerceOrigin,
   commerceCorsHeaders,
   commerceJson,
@@ -25,7 +27,11 @@ async function observedGET(request: Request) {
   try {
     origin = assertCommerceOrigin(request);
     enforceRateLimit(request, "commerce-catalog", 60);
-    const catalog = await loadPublicCatalog();
+    const categories = new URL(request.url).searchParams.getAll("category_id");
+    if (categories.length > 1 || (categories.length === 1 && !CATEGORY_IDS.includes(categories[0] as CategoryId))) {
+      throw new CommerceError("INVALID_CATEGORY", "Choose a valid product category.", 400);
+    }
+    const catalog = await loadPublicCatalog(undefined, categories[0] as CategoryId | undefined);
     const response = commerceJson(catalog, 200, origin, METHODS);
     response.headers.set("Cache-Control", PUBLIC_CACHE);
     return response;

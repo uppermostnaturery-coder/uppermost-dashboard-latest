@@ -11,6 +11,8 @@ export type CartLineInput = {
 };
 
 export type CatalogVariant = {
+  max_cart_quantity?: number;
+  product_max_cart_quantity?: number;
   id: string;
   product_id: string;
   product_code: string;
