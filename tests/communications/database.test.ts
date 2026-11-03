@@ -23,6 +23,19 @@ beforeAll(async () => {
 }, 60000);
 afterAll(async () => { await db?.close(); });
 describe("durable SQL boundaries", () => {
+  it('deduplicates WhatsApp preparation independently and recovers it without reopening completed EMAIL routing',async()=>{
+    const source=(await db.query<{id:string}>("insert into integration_outbox(provider,operation,aggregate_id,idempotency_key,status) values('COMMUNICATIONS','EVENT','isolation-source','isolation-source','completed') returning id")).rows[0].id;
+    const child=(await db.query<{id:string}>("insert into integration_outbox(provider,operation,aggregate_id,idempotency_key,payload,priority) values('COMMUNICATIONS','WHATSAPP_WORKFLOWS',$1,'isolation-whatsapp','{\"phase\":\"CAPTURE\",\"provider\":\"whatsapp\"}',-100) returning id",[source])).rows[0].id;
+    await db.query("insert into integration_outbox(provider,operation,aggregate_id,idempotency_key) values('COMMUNICATIONS','WHATSAPP_WORKFLOWS',$1,'isolation-whatsapp') on conflict(idempotency_key) do nothing",[source]);
+    expect((await db.query("select id from integration_outbox where idempotency_key='isolation-whatsapp'")).rows).toHaveLength(1);
+    await db.query('select * from comm_claim_outbox(50)');
+    await db.query("update integration_outbox set status='pending',transport_status='FAILED_RETRYABLE',lease_until=null,next_attempt_at=now()+interval '1 hour',last_error_code='WHATSAPP_WORKFLOW_PREPARATION_FAILED' where id=$1",[child]);
+    expect((await db.query<{id:string}>('select * from comm_claim_outbox(50)')).rows.some(r=>r.id===child)).toBe(false);
+    await db.query("update integration_outbox set next_attempt_at=now()-interval '1 second' where id=$1",[child]);
+    expect((await db.query<{id:string;attempt_count:number}>('select * from comm_claim_outbox(50)')).rows.find(r=>r.id===child)?.attempt_count).toBe(2);
+    expect((await db.query<{status:string}>('select status from integration_outbox where id=$1',[source])).rows[0].status).toBe('completed');
+    await db.query("update integration_outbox set status='completed',lease_until=null where id=$1",[child]);
+  });
   it('normalizes WhatsApp STOP phone identity using the commerce E164 convention',async()=>{
     const c='89000000-0000-4000-8000-000000000001';await db.query("insert into customers(id,name,normalized_email,normalized_phone) values($1,'Stop','stop@example.test','+919876543219')",[c]);
     await db.query("select comm_phone_opt_out('919876543219','WHATSAPP')");

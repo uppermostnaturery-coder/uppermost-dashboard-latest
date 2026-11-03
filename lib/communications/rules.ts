@@ -3,8 +3,7 @@ import { parseCondition } from "./dsl";
 import { nextRuns } from "./schedule";
 import { db,rpc,assertDb } from "./store";
 import { publishOutbox } from "./transport";
-import {stagingEmailSuppressionReason} from './stagingEmailSafety';
-import {dispatchWhatsAppWorkflows,isManagedWhatsAppRule,stagingWhatsAppWorkflowsEnabled} from './whatsappWorkflows';
+import {enqueueWhatsAppPreparation,isManagedWhatsAppRule,stagingWhatsAppWorkflowsEnabled} from './whatsappWorkflows';
 export const ruleSchema = z.object({
  name:z.string().min(1).max(160),description:z.string().max(1000).default(''),status:z.enum(['DRAFT','ACTIVE','PAUSED','ARCHIVED']).default('DRAFT'),
  trigger_type:z.enum(['EVENT','SCHEDULE','MANUAL']),trigger_event_type:z.enum(['lead.completed','lead.whatsapp.completed','customer.message.created','commerce.order.confirmed','commerce.payment.changed','commerce.subscription.changed','commerce.shipment.changed']).nullable().optional(),
@@ -19,8 +18,6 @@ export const ruleSchema = z.object({
  if(v.valid_from&&v.valid_until&&v.valid_until<=v.valid_from)c.addIssue({code:'custom',message:'Invalid validity range'});
 });
 export async function dispatchCommunications() {
- await dispatchWhatsAppWorkflows();
- if(stagingEmailSuppressionReason()==='STAGING_EMAIL_DRY_RUN')await rpc('comm_dispatch_whatsapp_welcomes',{p_limit:50,p_dry:true});
  const now=new Date();
  const result=await db.from('communication_rules').select('id,version,name,next_run_at,cron_expression,timezone').eq('status','ACTIVE').eq('trigger_type','SCHEDULE').lte('next_run_at',now.toISOString()).order('next_run_at').limit(20);assertDb(result);
  let runs=0;
@@ -37,5 +34,14 @@ export async function dispatchCommunications() {
  for(const d of due.data||[]){const bulk=versions.data?.some(v=>v.id===d.template_version_id&&v.category==='MARKETING');
   assertDb(await db.from('integration_outbox').upsert({provider:'COMMUNICATIONS',operation:'SEND',aggregate_id:d.id,idempotency_key:`send-retry:${d.id}:${d.retry_count}`,event_type:'communication.delivery.retry',lane:bulk?'BULK':'REALTIME',payload:{delivery_id:d.id,provider:d.provider.toLowerCase()}},{onConflict:'idempotency_key',ignoreDuplicates:true}));
  }
- return {runs,...await publishOutbox()};
+ // Concurrent wake-ups in the same minute reuse work without resetting its state.
+ const tick=now.toISOString().slice(0,16);let preparationFailure:unknown;
+ try{
+  await enqueueWhatsAppPreparation('DISPATCH',tick);
+  await enqueueWhatsAppPreparation('WELCOME',tick);
+ }catch(error){preparationFailure=error;}
+ // Even a failed WhatsApp handoff must not prevent publication of EMAIL work.
+ const publication=await publishOutbox();
+ if(preparationFailure)throw preparationFailure;
+ return {runs,...publication};
 }
