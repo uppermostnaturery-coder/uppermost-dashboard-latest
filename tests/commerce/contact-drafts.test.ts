@@ -1,0 +1,19 @@
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { contactDraftBinding, contactDraftSchema } from "../../lib/commerce/contactDrafts";
+const mocks = vi.hoisted(() => ({ from: vi.fn(), rpc: vi.fn() }));
+vi.mock("@/lib/supabaseAdmin", () => ({ supabaseAdmin: mocks }));
+vi.mock("@/lib/observability/server", () => ({ withObservation: (_: string, handler: unknown) => handler, markOutcome: vi.fn(), captureObservedError: vi.fn() }));
+import { POST } from "../../app/api/checkout/contact-draft/route";
+const token = "a".repeat(64), guest = "gs_" + "b".repeat(32);
+const save = { action: "save", draft_token: token, guest_session_id: guest, phone: "9999999999", revision: 1, customer: { name: "Fixture", email: "", phone: "9999999999" }, shipping_address: { line1: "Draft road", line2: "", landmark: "", city: "", state: "", postal_code: "", country: "IN" } };
+const request = (body: unknown, origin="https://www.uppermost.store") => new Request("https://example.test/api/checkout/contact-draft", { method:"POST", headers: {"content-type":"application/json", origin}, body: JSON.stringify(body) });
+beforeEach(() => { vi.clearAllMocks();process.env.COMMERCE_TOKEN_PEPPER="fixture-pepper";mocks.rpc.mockResolvedValue({error:null}); });
+describe("browser-bound checkout drafts", () => {
+ it("requires a browser capability; phone alone is insufficient", async () => { expect(contactDraftSchema.safeParse({ action:"read",phone:"9999999999" }).success).toBe(false);expect((await POST(request({action:"read",phone:"9999999999"}))).status).toBe(400);expect(mocks.from).not.toHaveBeenCalled(); });
+ it("binds to token, browser and canonical phone independently", () => { const a=contactDraftBinding(guest,token,"9999999999","pepper");expect(a).toEqual(contactDraftBinding(guest,token,"+919999999999","pepper"));expect(a.browser_hash).not.toEqual(contactDraftBinding(guest,"c".repeat(64),"9999999999","pepper").browser_hash);expect(a.browser_hash).not.toEqual(contactDraftBinding(guest+"x",token,"9999999999","pepper").browser_hash);expect(a.phone_hash).not.toEqual(contactDraftBinding(guest,token,"8888888888","pepper").phone_hash); });
+ it("accepts incomplete field-blur data without touching saved addresses", async () => { const r=await POST(request(save));expect(r.status).toBe(200);expect(mocks.rpc.mock.calls[0][0]).toBe("save_checkout_contact_draft");const row=mocks.rpc.mock.calls[0][1];expect(row.p_customer.name).toBe("Fixture");expect(JSON.stringify(row)).not.toContain(token);expect(mocks.from).not.toHaveBeenCalled(); });
+ it("rejects injected tokens, quote data and mismatched phones", async () => { expect((await POST(request({...save,quote_token:"unsafe"}))).status).toBe(400);expect((await POST(request({...save,customer:{...save.customer,phone:"8888888888"}}))).status).toBe(400);expect(mocks.rpc).not.toHaveBeenCalled(); });
+ it("never reads by phone alone and excludes expired drafts", async () => { const chain:any={select:vi.fn().mockReturnThis(),eq:vi.fn().mockReturnThis(),gt:vi.fn().mockReturnThis(),maybeSingle:vi.fn().mockResolvedValue({data:null,error:null})};mocks.from.mockReturnValue(chain);const r=await POST(request({action:"read",draft_token:token,guest_session_id:guest,phone:"9999999999"}));expect(await r.json()).toEqual({ok:true,source:"RETARGETING_DRAFT",draft:null});expect(chain.eq).toHaveBeenCalledWith("browser_hash",expect.any(String));expect(chain.eq).toHaveBeenCalledWith("phone_hash",expect.any(String));expect(chain.gt).toHaveBeenCalledWith("expires_at",expect.any(String)); });
+ it("rejects unrelated origins", async () => { expect((await POST(request(save,"https://untrusted.example"))).status).toBe(403);expect(mocks.rpc).not.toHaveBeenCalled(); });
+ it("reports unavailable storage instead of claiming it was saved", async () => { mocks.rpc.mockResolvedValue({error:{message:"offline"}});expect((await POST(request(save))).status).toBe(500); });
+});
