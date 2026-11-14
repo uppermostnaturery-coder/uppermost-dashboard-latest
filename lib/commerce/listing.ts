@@ -9,6 +9,7 @@ export type ListingDetails = {
   images: ListingImage[];
   tags: string[];
   badge: string | null;
+  unit_price_per_litre_paise?: Record<string, number>;
   origin: string;
   detail_url: string | null;
   coming_soon: boolean;
@@ -49,6 +50,11 @@ export function listingFor(product: Product): ListingDetails | null {
   if (!images.length && legacy) images.push({ url: "https://framerusercontent.com/images/" + legacy.image, alt: product.name, kind: "packshot" });
   return {
     category_id: category, description: text(product.description, 1200), images,
+    ...(Object.keys(object(data.unit_price_per_litre_paise)).length ? { unit_price_per_litre_paise: Object.fromEntries(
+      Object.entries(object(data.unit_price_per_litre_paise)).slice(0, 20).filter(([sku, price]) =>
+        /^[A-Z0-9][A-Z0-9_-]{1,99}$/.test(sku) && typeof price === "number" && Number.isSafeInteger(price) && price > 0
+      )
+    ) as Record<string, number> } : {}),
     tags: (Array.isArray(data.tags) ? data.tags : legacy?.tags ?? []).flatMap(value => { const tag = text(value, 80); return tag ? [tag] : []; }).slice(0, 8),
     badge: text(data.badge, 80) || (legacy ? "~30 jars a week" : null), origin: text(data.origin, 120) || (legacy ? "Uppermost Farms®" : ""),
     detail_url: publicUrl(data.detail_url) || (legacy ? "https://www.uppermost.store/ghee" : null),

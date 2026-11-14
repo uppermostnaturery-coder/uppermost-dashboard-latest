@@ -18,6 +18,13 @@ const products = [
 const variants: CatalogVariant[] = [{ id: "community-1l", product_id: "community", product_code: "COMMUNITY_COW_GHEE", product_name: "A2 Desi Cow Ghee", product_family: "COMMUNITY_COW", sku: "COMMUNITY-COW-1000", variant_name: "1 L", size_label: "1 L", price_paise: 410000, currency: "INR", weight_grams: 1200, length_cm: 14, breadth_cm: 14, height_cm: 18, inventory_policy: "SUPABASE", inventory_quantity: 1, is_active: true }];
 
 describe("category catalog", () => {
+  it("allowlists integer per-litre display metadata without changing checkout prices or the unfiltered contract", () => {
+    const oil = { ...products[2], metadata: { listing: { category_id: "mustard-oil", unit_price_per_litre_paise: { "MUSTARD-COOKING-5000": 85000, bad: -1, "private note": 100, FRACTION: 1.5, STRING: "100", INFINITE: Infinity } } } };
+    const response = catalog.buildPublicCatalogResponse({ products: [oil], variants: [], releases: [], promotions: [], categoryId: "mustard-oil" });
+    expect(response.products[0].listing?.unit_price_per_litre_paise).toEqual({ "MUSTARD-COOKING-5000": 85000 });
+    const legacy = catalog.buildPublicCatalogResponse({ products: [oil], variants: [], releases: [], promotions: [] });
+    expect(JSON.stringify(legacy)).not.toContain("unit_price_per_litre_paise");
+  });
   it("returns both ghee tiers with card data, stock-aware limits and no private metadata", () => {
     const response = catalog.buildPublicCatalogResponse({ products, variants, releases: [], promotions: [], categoryId: "ghee" });
     expect(response.category_id).toBe("ghee");
